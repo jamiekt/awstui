@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 from textual.app import App, ComposeResult
@@ -51,7 +49,8 @@ class AWSBrowserApp(App):
         super().__init__()
         self._session: boto3.Session | None = None
         self._identity: str = ""
-        self._region: str = "us-east-1"  # default, will be updated on_mount
+        self._region: str = "us-east-1"
+        self._plugin_registry = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -84,8 +83,8 @@ class AWSBrowserApp(App):
         self.query_one("#identity-bar", Static).update(self._identity)
 
         # Discover plugins and rebuild tree
-        registry = discover_plugins()
-        plugins = registry.list_plugins()
+        self._plugin_registry = discover_plugins()
+        plugins = self._plugin_registry.list_plugins()
 
         nav_pane = self.query_one("#nav-pane", Vertical)
         # Remove placeholder tree and region selector
@@ -97,8 +96,9 @@ class AWSBrowserApp(App):
     def on_node_selected(self, message: NodeSelected) -> None:
         detail = self.query_one("#detail-pane", DetailPane)
         node_data = message.node_data
-        plugin_registry = discover_plugins()
-        plugin = plugin_registry.get(node_data.service)
+        if self._plugin_registry is None:
+            return
+        plugin = self._plugin_registry.get(node_data.service)
 
         if plugin is None:
             detail.show_placeholder()
@@ -137,18 +137,8 @@ class AWSBrowserApp(App):
         self._region = message.region
         self._session = boto3.Session(region_name=self._region)
 
-        # Reset the nav tree (only if it exists)
-        try:
-            tree = self.query_one(AWSNavTree)
-            tree.session = self._session
-            tree.reset_tree()
-        except Exception:
-            # Tree not yet mounted
-            pass
+        tree = self.query_one(AWSNavTree)
+        tree.session = self._session
+        tree.reset_tree()
 
-        # Clear detail pane
-        try:
-            self.query_one("#detail-pane", DetailPane).show_placeholder()
-        except Exception:
-            # Detail pane not yet mounted
-            pass
+        self.query_one("#detail-pane", DetailPane).show_placeholder()

@@ -26,7 +26,7 @@ class IAMPlugin(AWSServicePlugin):
         ]
 
     def get_children(self, session: boto3.Session, node: TreeNode) -> list[TreeNode]:
-        client = session.client("iam")
+        client = session.client("iam", region_name="us-east-1")
 
         if node.node_type == "category":
             return self._get_category_children(client, node)
@@ -117,7 +117,7 @@ class IAMPlugin(AWSServicePlugin):
         return [TreeNode(id=f"iam:inline_policy:{node.metadata['role_name']}:{name}", label=name, node_type="role_inline_policy", service="iam", expandable=False, metadata={"role_name": node.metadata["role_name"], "policy_name": name}) for name in response.get("PolicyNames", [])]
 
     def get_details(self, session: boto3.Session, node: TreeNode) -> ResourceDetails:
-        client = session.client("iam")
+        client = session.client("iam", region_name="us-east-1")
 
         if node.node_type == "user":
             response = client.get_user(UserName=node.metadata["user_name"])

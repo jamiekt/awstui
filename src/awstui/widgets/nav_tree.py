@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-from typing import Any
-
 import boto3
 from botocore.exceptions import ClientError
 from textual.message import Message
 from textual.widgets import Tree
-from textual.widgets._tree import TreeNode as TextualTreeNode
 
 from awstui.models import TreeNode
 from awstui.plugin import AWSServicePlugin
