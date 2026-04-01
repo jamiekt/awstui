@@ -41,7 +41,7 @@ class DetailPane(Static):
     """
 
     def compose(self) -> ComposeResult:
-        yield Static("Select a resource to view details", id="detail-placeholder")
+        yield Static("Select a resource to view details")
 
     def show_details(self, details: ResourceDetails) -> None:
         """Display resource details with Summary and Raw JSON tabs."""
@@ -89,4 +89,4 @@ class DetailPane(Static):
     def show_placeholder(self) -> None:
         """Show the default placeholder."""
         self.remove_children()
-        self.mount(Static("Select a resource to view details", id="detail-placeholder"))
+        self.mount(Static("Select a resource to view details"))
