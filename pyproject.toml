@@ -1,0 +1,23 @@
+[project]
+name = "awstui"
+version = "0.1.0"
+description = "A TUI for browsing AWS resources"
+requires-python = ">=3.12"
+dependencies = [
+    "textual>=3.0",
+    "boto3>=1.35",
+]
+
+[project.scripts]
+awstui = "awstui.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.25",
+    "textual-dev>=1.7",
+]
