@@ -3,6 +3,7 @@ from __future__ import annotations
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Static
 
@@ -17,6 +18,11 @@ class AWSBrowserApp(App):
     """AWS TUI Browser."""
 
     TITLE = "awstui"
+    BINDINGS = [
+        Binding("1", "focus_region", "Region"),
+        Binding("2", "focus_nav", "Nav"),
+        Binding("3", "focus_detail", "Detail"),
+    ]
     CSS = """
     #main {
         height: 1fr;
@@ -91,7 +97,9 @@ class AWSBrowserApp(App):
         nav_pane.remove_children()
         # Mount fresh widgets
         nav_pane.mount(RegionSelector(self._region))
-        nav_pane.mount(AWSNavTree(self._session, plugins))
+        tree = AWSNavTree(self._session, plugins)
+        nav_pane.mount(tree)
+        tree.focus()
 
     def on_node_selected(self, message: NodeSelected) -> None:
         detail = self.query_one("#detail-pane", DetailPane)
@@ -129,6 +137,24 @@ class AWSBrowserApp(App):
 
     def on_node_error(self, message: NodeError) -> None:
         self.query_one("#detail-pane", DetailPane).show_error(message.error_message)
+
+    def action_focus_region(self) -> None:
+        try:
+            self.query_one(RegionSelector).focus()
+        except Exception:
+            pass
+
+    def action_focus_nav(self) -> None:
+        try:
+            self.query_one(AWSNavTree).focus()
+        except Exception:
+            pass
+
+    def action_focus_detail(self) -> None:
+        try:
+            self.query_one("#detail-pane", DetailPane).focus()
+        except Exception:
+            pass
 
     def on_region_changed(self, message: RegionChanged) -> None:
         if message.region == self._region:

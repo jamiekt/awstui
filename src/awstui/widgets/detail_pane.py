@@ -11,13 +11,17 @@ from textual.widgets import Static, TabbedContent, TabPane
 from awstui.models import ResourceDetails
 
 
-class DetailPane(Static):
+class DetailPane(Static, can_focus=True):
     """Right pane showing details of the selected resource."""
 
     DEFAULT_CSS = """
     DetailPane {
         height: 100%;
         padding: 1;
+    }
+    DetailPane:focus {
+        border: tall $accent;
+        padding: 0;
     }
     .detail-title {
         text-style: bold;
