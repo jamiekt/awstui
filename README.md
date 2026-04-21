@@ -31,6 +31,16 @@ uv run awstui --profile my-profile       # use a specific AWS profile
 
 Uses your existing AWS credentials (environment variables, `~/.aws/credentials`, SSO — whatever boto3 resolves). Pass `--profile`/`-p` to override the profile explicitly.
 
+## Hotkeys
+
+| Key | Action |
+| --- | --- |
+| `1` | Focus the region selector |
+| `2` | Focus the navigation tree |
+| `3` | Focus the detail pane |
+| `c` | Copy the ARN of the selected resource to the clipboard |
+| `r` | Copy the Raw JSON of the selected resource to the clipboard |
+
 ## Running Tests
 
 ```bash
