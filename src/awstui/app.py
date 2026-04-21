@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
 import boto3
 import pyperclip
@@ -16,6 +17,13 @@ from awstui.services import discover_plugins
 from awstui.widgets.detail_pane import DetailPane
 from awstui.widgets.nav_tree import AWSNavTree, NodeError, NodeSelected
 from awstui.widgets.region_selector import RegionChanged, RegionSelector
+
+
+def _get_version() -> str:
+    try:
+        return _pkg_version("awstui")
+    except PackageNotFoundError:
+        return "unknown"
 
 
 class AWSBrowserApp(App):
@@ -100,6 +108,8 @@ class AWSBrowserApp(App):
 
         if self._profile:
             self._identity = f"[profile: {self._profile}] {self._identity}"
+
+        self._identity = f"awstui v{_get_version()} · {self._identity}"
 
         self.query_one("#identity-bar", Static).update(self._identity)
 
