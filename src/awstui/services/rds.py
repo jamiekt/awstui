@@ -21,8 +21,22 @@ class RDSPlugin(AWSServicePlugin):
 
     def get_root_nodes(self, session: boto3.Session) -> list[TreeNode]:
         return [
-            TreeNode(id="rds:category:instances", label="DB Instances", node_type="category", service="rds", expandable=True, metadata={"category": "instances"}),
-            TreeNode(id="rds:category:clusters", label="DB Clusters", node_type="category", service="rds", expandable=True, metadata={"category": "clusters"}),
+            TreeNode(
+                id="rds:category:instances",
+                label="DB Instances",
+                node_type="category",
+                service="rds",
+                expandable=True,
+                metadata={"category": "instances"},
+            ),
+            TreeNode(
+                id="rds:category:clusters",
+                label="DB Clusters",
+                node_type="category",
+                service="rds",
+                expandable=True,
+                metadata={"category": "clusters"},
+            ),
         ]
 
     def get_children(self, session: boto3.Session, node: TreeNode) -> list[TreeNode]:
@@ -31,14 +45,28 @@ class RDSPlugin(AWSServicePlugin):
         if node.metadata.get("category") == "instances":
             response = client.describe_db_instances()
             return [
-                TreeNode(id=f"rds:instance:{db['DBInstanceIdentifier']}", label=db["DBInstanceIdentifier"], node_type="db_instance", service="rds", expandable=False, metadata={"db_instance_id": db["DBInstanceIdentifier"]})
+                TreeNode(
+                    id=f"rds:instance:{db['DBInstanceIdentifier']}",
+                    label=db["DBInstanceIdentifier"],
+                    node_type="db_instance",
+                    service="rds",
+                    expandable=False,
+                    metadata={"db_instance_id": db["DBInstanceIdentifier"]},
+                )
                 for db in response.get("DBInstances", [])
             ]
 
         if node.metadata.get("category") == "clusters":
             response = client.describe_db_clusters()
             return [
-                TreeNode(id=f"rds:cluster:{c['DBClusterIdentifier']}", label=c["DBClusterIdentifier"], node_type="db_cluster", service="rds", expandable=False, metadata={"db_cluster_id": c["DBClusterIdentifier"]})
+                TreeNode(
+                    id=f"rds:cluster:{c['DBClusterIdentifier']}",
+                    label=c["DBClusterIdentifier"],
+                    node_type="db_cluster",
+                    service="rds",
+                    expandable=False,
+                    metadata={"db_cluster_id": c["DBClusterIdentifier"]},
+                )
                 for c in response.get("DBClusters", [])
             ]
 
@@ -48,7 +76,9 @@ class RDSPlugin(AWSServicePlugin):
         client = session.client("rds")
 
         if node.node_type == "db_instance":
-            response = client.describe_db_instances(DBInstanceIdentifier=node.metadata["db_instance_id"])
+            response = client.describe_db_instances(
+                DBInstanceIdentifier=node.metadata["db_instance_id"]
+            )
             db = response["DBInstances"][0]
             endpoint = db.get("Endpoint", {})
             return ResourceDetails(
@@ -68,7 +98,9 @@ class RDSPlugin(AWSServicePlugin):
             )
 
         if node.node_type == "db_cluster":
-            response = client.describe_db_clusters(DBClusterIdentifier=node.metadata["db_cluster_id"])
+            response = client.describe_db_clusters(
+                DBClusterIdentifier=node.metadata["db_cluster_id"]
+            )
             cluster = response["DBClusters"][0]
             return ResourceDetails(
                 title=f"RDS Cluster: {cluster['DBClusterIdentifier']}",
@@ -86,7 +118,9 @@ class RDSPlugin(AWSServicePlugin):
             )
 
         if node.node_type == "category":
-            return ResourceDetails(title=node.label, subtitle="Expand to see resources", summary={}, raw={})
+            return ResourceDetails(
+                title=node.label, subtitle="Expand to see resources", summary={}, raw={}
+            )
 
         return ResourceDetails(title=node.label, subtitle="", summary={}, raw={})
 

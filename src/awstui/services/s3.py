@@ -38,9 +38,7 @@ class S3Plugin(AWSServicePlugin):
         bucket = node.metadata["bucket_name"]
         prefix = node.metadata.get("prefix", "")
 
-        response = client.list_objects_v2(
-            Bucket=bucket, Prefix=prefix, Delimiter="/"
-        )
+        response = client.list_objects_v2(Bucket=bucket, Prefix=prefix, Delimiter="/")
 
         children: list[TreeNode] = []
 
@@ -121,9 +119,7 @@ class S3Plugin(AWSServicePlugin):
                 raw={"Bucket": bucket, "Prefix": prefix},
             )
 
-        return ResourceDetails(
-            title=node.label, subtitle="", summary={}, raw={}
-        )
+        return ResourceDetails(title=node.label, subtitle="", summary={}, raw={})
 
 
 plugin = S3Plugin()

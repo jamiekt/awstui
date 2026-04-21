@@ -59,8 +59,12 @@ class SQSPlugin(AWSServicePlugin):
                 "Queue URL": queue_url,
                 "ARN": attrs.get("QueueArn", ""),
                 "Messages Available": attrs.get("ApproximateNumberOfMessages", "0"),
-                "Messages In Flight": attrs.get("ApproximateNumberOfMessagesNotVisible", "0"),
-                "Messages Delayed": attrs.get("ApproximateNumberOfMessagesDelayed", "0"),
+                "Messages In Flight": attrs.get(
+                    "ApproximateNumberOfMessagesNotVisible", "0"
+                ),
+                "Messages Delayed": attrs.get(
+                    "ApproximateNumberOfMessagesDelayed", "0"
+                ),
                 "Visibility Timeout": attrs.get("VisibilityTimeout", ""),
                 "Dead Letter Queue": dlq_info or "None",
             },

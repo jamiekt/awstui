@@ -31,7 +31,9 @@ class AWSNavTree(Tree[TreeNode]):
     def __init__(self, session: boto3.Session, plugins: list[AWSServicePlugin]) -> None:
         super().__init__("AWS Services")
         self._session = session
-        self._plugins: dict[str, AWSServicePlugin] = {p.service_name: p for p in plugins}
+        self._plugins: dict[str, AWSServicePlugin] = {
+            p.service_name: p for p in plugins
+        }
 
     @property
     def session(self) -> boto3.Session:
@@ -84,8 +86,16 @@ class AWSNavTree(Tree[TreeNode]):
                 child_node.allow_expand = child.expandable
         except ClientError as e:
             error_code = e.response["Error"].get("Code", "")
-            if error_code in ("AccessDenied", "AccessDeniedException", "UnauthorizedAccess"):
-                self.post_message(NodeError(f"Access Denied: insufficient permissions to list {data.label}"))
+            if error_code in (
+                "AccessDenied",
+                "AccessDeniedException",
+                "UnauthorizedAccess",
+            ):
+                self.post_message(
+                    NodeError(
+                        f"Access Denied: insufficient permissions to list {data.label}"
+                    )
+                )
             else:
                 self.post_message(NodeError(f"Error loading {data.label}: {e}"))
         except Exception as e:

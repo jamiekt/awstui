@@ -163,8 +163,14 @@ class AWSBrowserApp(App):
             details = plugin.get_details(self._session, node_data)
         except ClientError as e:
             error_code = e.response["Error"].get("Code", "")
-            if error_code in ("AccessDenied", "AccessDeniedException", "UnauthorizedAccess"):
-                detail.show_error(f"Access Denied: insufficient permissions to view {node_data.label}")
+            if error_code in (
+                "AccessDenied",
+                "AccessDeniedException",
+                "UnauthorizedAccess",
+            ):
+                detail.show_error(
+                    f"Access Denied: insufficient permissions to view {node_data.label}"
+                )
             else:
                 detail.show_error(f"Error loading details: {e}")
             self._current_raw = {}
@@ -257,7 +263,9 @@ class AWSBrowserApp(App):
 
     @work(thread=True, exclusive=True, group="child_count")
     def _load_child_count(self, node: TreeNode, seq: int) -> None:
-        plugin = self._plugin_registry.get(node.service) if self._plugin_registry else None
+        plugin = (
+            self._plugin_registry.get(node.service) if self._plugin_registry else None
+        )
         if plugin is None or self._session is None:
             return
 
@@ -266,7 +274,11 @@ class AWSBrowserApp(App):
                 children = plugin.get_root_nodes(self._session)
                 # Derive noun from the first child's node_type (e.g. 'bucket', 'function').
                 # Falls back to the plugin name if there are no children.
-                base = children[0].node_type.replace("_", " ") if children else plugin.name.lower()
+                base = (
+                    children[0].node_type.replace("_", " ")
+                    if children
+                    else plugin.name.lower()
+                )
                 noun = self._pluralize(base)
             else:
                 children = plugin.get_children(self._session, node)
@@ -275,7 +287,11 @@ class AWSBrowserApp(App):
             message = f"{count} {noun}"
         except ClientError as e:
             error_code = e.response["Error"].get("Code", "")
-            if error_code in ("AccessDenied", "AccessDeniedException", "UnauthorizedAccess"):
+            if error_code in (
+                "AccessDenied",
+                "AccessDeniedException",
+                "UnauthorizedAccess",
+            ):
                 message = "Access Denied: cannot count items"
             else:
                 message = f"Error counting items: {e}"

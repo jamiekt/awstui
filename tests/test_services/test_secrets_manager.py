@@ -39,7 +39,10 @@ def test_get_root_nodes_returns_secrets():
     assert nodes[0].label == "alpha"
     assert nodes[0].node_type == "secret"
     assert nodes[0].expandable is False
-    assert nodes[0].metadata["secret_id"] == "arn:aws:secretsmanager:us-east-1:123:secret:alpha-AbCdEf"
+    assert (
+        nodes[0].metadata["secret_id"]
+        == "arn:aws:secretsmanager:us-east-1:123:secret:alpha-AbCdEf"
+    )
 
 
 def test_get_root_nodes_empty():
@@ -59,7 +62,9 @@ def test_get_children_returns_empty():
         node_type="secret",
         service="secretsmanager",
         expandable=False,
-        metadata={"secret_id": "arn:aws:secretsmanager:us-east-1:123:secret:alpha-AbCdEf"},
+        metadata={
+            "secret_id": "arn:aws:secretsmanager:us-east-1:123:secret:alpha-AbCdEf"
+        },
     )
 
     plugin = SecretsManagerPlugin()
@@ -88,16 +93,23 @@ def test_get_details_with_rotation_and_kms():
         node_type="secret",
         service="secretsmanager",
         expandable=False,
-        metadata={"secret_id": "arn:aws:secretsmanager:us-east-1:123:secret:alpha-AbCdEf"},
+        metadata={
+            "secret_id": "arn:aws:secretsmanager:us-east-1:123:secret:alpha-AbCdEf"
+        },
     )
 
     plugin = SecretsManagerPlugin()
     details = plugin.get_details(session, node)
 
     assert details.title == "Secret: alpha"
-    assert details.subtitle == "arn:aws:secretsmanager:us-east-1:123:secret:alpha-AbCdEf"
+    assert (
+        details.subtitle == "arn:aws:secretsmanager:us-east-1:123:secret:alpha-AbCdEf"
+    )
     assert details.summary["Rotation Enabled"] == "Yes"
-    assert details.summary["Rotation Lambda"] == "arn:aws:lambda:us-east-1:123:function:rotator"
+    assert (
+        details.summary["Rotation Lambda"]
+        == "arn:aws:lambda:us-east-1:123:function:rotator"
+    )
     assert details.summary["KMS Key ID"] == "arn:aws:kms:us-east-1:123:key/abcd"
     assert details.summary["Tags"] == "1"
 
@@ -119,7 +131,9 @@ def test_get_details_without_rotation_or_kms():
         node_type="secret",
         service="secretsmanager",
         expandable=False,
-        metadata={"secret_id": "arn:aws:secretsmanager:us-east-1:123:secret:beta-GhIjKl"},
+        metadata={
+            "secret_id": "arn:aws:secretsmanager:us-east-1:123:secret:beta-GhIjKl"
+        },
     )
 
     plugin = SecretsManagerPlugin()

@@ -59,9 +59,7 @@ class SNSPlugin(AWSServicePlugin):
         client = session.client("sns")
 
         if node.node_type == "topic":
-            response = client.get_topic_attributes(
-                TopicArn=node.metadata["topic_arn"]
-            )
+            response = client.get_topic_attributes(TopicArn=node.metadata["topic_arn"])
             attrs = response.get("Attributes", {})
             return ResourceDetails(
                 title=f"SNS Topic: {node.label}",

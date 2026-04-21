@@ -86,7 +86,10 @@ def test_get_children_of_user_attached_policies():
     client = session.client.return_value
     client.list_attached_user_policies.return_value = {
         "AttachedPolicies": [
-            {"PolicyName": "ReadOnlyAccess", "PolicyArn": "arn:aws:iam::aws:policy/ReadOnlyAccess"}
+            {
+                "PolicyName": "ReadOnlyAccess",
+                "PolicyArn": "arn:aws:iam::aws:policy/ReadOnlyAccess",
+            }
         ]
     }
 

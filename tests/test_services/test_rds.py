@@ -105,9 +105,7 @@ def test_get_details_for_instance():
         "Endpoint": {"Address": "mydb.xxx.us-east-1.rds.amazonaws.com", "Port": 5432},
         "AllocatedStorage": 20,
     }
-    client.describe_db_instances.return_value = {
-        "DBInstances": [instance_data]
-    }
+    client.describe_db_instances.return_value = {"DBInstances": [instance_data]}
 
     from awstui.models import TreeNode
 

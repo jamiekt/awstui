@@ -9,20 +9,23 @@ from awstui.app import AWSBrowserApp
 async def test_app_starts():
     """Test that the app can be instantiated and composed."""
     # Mock boto3 to avoid AWS credential issues
-    with patch('awstui.app.boto3') as mock_boto3:
+    with patch("awstui.app.boto3") as mock_boto3:
         mock_session = MagicMock()
         mock_session.region_name = "us-east-1"
         mock_boto3.Session.side_effect = NoCredentialsError()
 
         app = AWSBrowserApp()
-        async with app.run_test(size=(120, 40)) as pilot:
+        async with app.run_test(size=(120, 40)):
             # App should start without crashing
             assert app.title == "awstui"
 
 
 def test_find_arn_top_level():
     app = AWSBrowserApp()
-    assert app._find_arn({"Arn": "arn:aws:iam::123:user/alice"}) == "arn:aws:iam::123:user/alice"
+    assert (
+        app._find_arn({"Arn": "arn:aws:iam::123:user/alice"})
+        == "arn:aws:iam::123:user/alice"
+    )
 
 
 def test_find_arn_service_specific_key():
@@ -39,7 +42,10 @@ def test_find_arn_nested():
 
 def test_find_arn_uppercase_key():
     app = AWSBrowserApp()
-    assert app._find_arn({"ARN": "arn:aws:secretsmanager:us-east-1:123:secret:s"}) == "arn:aws:secretsmanager:us-east-1:123:secret:s"
+    assert (
+        app._find_arn({"ARN": "arn:aws:secretsmanager:us-east-1:123:secret:s"})
+        == "arn:aws:secretsmanager:us-east-1:123:secret:s"
+    )
 
 
 def test_find_arn_ignores_non_arn_value():
