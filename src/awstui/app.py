@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import boto3
+import pyperclip
 from botocore.exceptions import ClientError, NoCredentialsError
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -22,6 +23,7 @@ class AWSBrowserApp(App):
         Binding("1", "focus_region", "Region"),
         Binding("2", "focus_nav", "Nav"),
         Binding("3", "focus_detail", "Detail"),
+        Binding("c", "copy_arn", "Copy ARN"),
     ]
     CSS = """
     #main {
@@ -57,6 +59,7 @@ class AWSBrowserApp(App):
         self._identity: str = ""
         self._region: str = "us-east-1"
         self._plugin_registry = None
+        self._current_raw: object = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -110,6 +113,7 @@ class AWSBrowserApp(App):
 
         if plugin is None:
             detail.show_placeholder()
+            self._current_raw = {}
             return
 
         if node_data.node_type == "service":
@@ -121,22 +125,27 @@ class AWSBrowserApp(App):
                     raw={},
                 )
             )
+            self._current_raw = {}
             return
 
         try:
             details = plugin.get_details(self._session, node_data)
             detail.show_details(details)
+            self._current_raw = details.raw
         except ClientError as e:
             error_code = e.response["Error"].get("Code", "")
             if error_code in ("AccessDenied", "AccessDeniedException", "UnauthorizedAccess"):
                 detail.show_error(f"Access Denied: insufficient permissions to view {node_data.label}")
             else:
                 detail.show_error(f"Error loading details: {e}")
+            self._current_raw = {}
         except Exception as e:
             detail.show_error(f"Error loading details: {e}")
+            self._current_raw = {}
 
     def on_node_error(self, message: NodeError) -> None:
         self.query_one("#detail-pane", DetailPane).show_error(message.error_message)
+        self._current_raw = {}
 
     def action_focus_region(self) -> None:
         try:
@@ -156,6 +165,48 @@ class AWSBrowserApp(App):
         except Exception:
             pass
 
+    def action_copy_arn(self) -> None:
+        arn = self._find_arn(self._current_raw)
+        if not arn:
+            self.notify("No ARN available for this resource", severity="warning")
+            return
+        try:
+            pyperclip.copy(arn)
+            self.notify(f"Copied ARN: {arn}")
+        except pyperclip.PyperclipException:
+            # No system clipboard tool available — fall back to OSC 52.
+            self.copy_to_clipboard(arn)
+            self.notify(
+                f"Copied ARN via terminal escape: {arn}",
+                severity="warning",
+            )
+
+    def _find_arn(self, obj: object) -> str:
+        """Recursively find an ARN in a raw API response.
+
+        Looks for a key whose name (case-insensitive) ends with 'arn'
+        and whose value is a string starting with 'arn:'.
+        """
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                if (
+                    isinstance(key, str)
+                    and key.lower().endswith("arn")
+                    and isinstance(value, str)
+                    and value.startswith("arn:")
+                ):
+                    return value
+            for value in obj.values():
+                found = self._find_arn(value)
+                if found:
+                    return found
+        elif isinstance(obj, list):
+            for item in obj:
+                found = self._find_arn(item)
+                if found:
+                    return found
+        return ""
+
     def on_region_changed(self, message: RegionChanged) -> None:
         if message.region == self._region:
             return
@@ -168,3 +219,4 @@ class AWSBrowserApp(App):
         tree.reset_tree()
 
         self.query_one("#detail-pane", DetailPane).show_placeholder()
+        self._current_raw = {}

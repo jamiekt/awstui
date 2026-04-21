@@ -18,3 +18,40 @@ async def test_app_starts():
         async with app.run_test(size=(120, 40)) as pilot:
             # App should start without crashing
             assert app.title == "awstui"
+
+
+def test_find_arn_top_level():
+    app = AWSBrowserApp()
+    assert app._find_arn({"Arn": "arn:aws:iam::123:user/alice"}) == "arn:aws:iam::123:user/alice"
+
+
+def test_find_arn_service_specific_key():
+    app = AWSBrowserApp()
+    raw = {"QueueArn": "arn:aws:sqs:us-east-1:123:my-queue", "Other": "x"}
+    assert app._find_arn(raw) == "arn:aws:sqs:us-east-1:123:my-queue"
+
+
+def test_find_arn_nested():
+    app = AWSBrowserApp()
+    raw = {"Configuration": {"FunctionArn": "arn:aws:lambda:us-east-1:123:function:f"}}
+    assert app._find_arn(raw) == "arn:aws:lambda:us-east-1:123:function:f"
+
+
+def test_find_arn_uppercase_key():
+    app = AWSBrowserApp()
+    assert app._find_arn({"ARN": "arn:aws:secretsmanager:us-east-1:123:secret:s"}) == "arn:aws:secretsmanager:us-east-1:123:secret:s"
+
+
+def test_find_arn_ignores_non_arn_value():
+    app = AWSBrowserApp()
+    assert app._find_arn({"Arn": "not-an-arn"}) == ""
+
+
+def test_find_arn_returns_empty_when_missing():
+    app = AWSBrowserApp()
+    assert app._find_arn({"Name": "foo", "Size": 42}) == ""
+
+
+def test_find_arn_empty_input():
+    app = AWSBrowserApp()
+    assert app._find_arn({}) == ""
