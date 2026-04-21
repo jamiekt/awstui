@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import boto3
 import pyperclip
 from botocore.exceptions import ClientError, NoCredentialsError
@@ -24,6 +26,7 @@ class AWSBrowserApp(App):
         Binding("2", "focus_nav", "Nav"),
         Binding("3", "focus_detail", "Detail"),
         Binding("c", "copy_arn", "Copy ARN"),
+        Binding("r", "copy_raw", "Copy Raw"),
     ]
     CSS = """
     #main {
@@ -170,14 +173,24 @@ class AWSBrowserApp(App):
         if not arn:
             self.notify("No ARN available for this resource", severity="warning")
             return
+        self._copy_text(arn, f"Copied ARN: {arn}")
+
+    def action_copy_raw(self) -> None:
+        if not self._current_raw:
+            self.notify("No raw JSON available for this resource", severity="warning")
+            return
+        raw = json.dumps(self._current_raw, indent=2, default=str)
+        self._copy_text(raw, "Copied raw JSON")
+
+    def _copy_text(self, text: str, success_message: str) -> None:
         try:
-            pyperclip.copy(arn)
-            self.notify(f"Copied ARN: {arn}")
+            pyperclip.copy(text)
+            self.notify(success_message)
         except pyperclip.PyperclipException:
             # No system clipboard tool available — fall back to OSC 52.
-            self.copy_to_clipboard(arn)
+            self.copy_to_clipboard(text)
             self.notify(
-                f"Copied ARN via terminal escape: {arn}",
+                f"{success_message} (via terminal escape)",
                 severity="warning",
             )
 
