@@ -1,6 +1,6 @@
 [project]
 name = "awstui"
-version = "0.1.0"
+version = "0.1"
 description = "A TUI for browsing AWS resources"
 requires-python = ">=3.12"
 dependencies = [

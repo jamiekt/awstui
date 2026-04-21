@@ -25,6 +25,31 @@ jobs:
       - name: Run tests
         run: uv run pytest tests/ -v
 
+      - name: Stamp version
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          python - <<'PY'
+          import os, re, pathlib
+          path = pathlib.Path("pyproject.toml")
+          text = path.read_text()
+          match = re.search(r'^version = "(\d+\.\d+)"', text, re.MULTILINE)
+          if not match:
+              raise SystemExit("pyproject.toml must contain 'version = \"MAJOR.MINOR\"'")
+          base = match.group(1)
+          full = f'{base}.{os.environ["RUN_NUMBER"]}'
+          path.write_text(
+              re.sub(
+                  r'^version = "\d+\.\d+"',
+                  f'version = "{full}"',
+                  text,
+                  count=1,
+                  flags=re.MULTILINE,
+              )
+          )
+          print(f"Stamped version: {full}")
+          PY
+
       - name: Build sdist and wheel
         run: uv build
 
