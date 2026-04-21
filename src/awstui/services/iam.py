@@ -17,6 +17,10 @@ class IAMPlugin(AWSServicePlugin):
     def service_name(self) -> str:
         return "iam"
 
+    @property
+    def has_flat_root(self) -> bool:
+        return False
+
     def get_root_nodes(self, session: boto3.Session) -> list[TreeNode]:
         return [
             TreeNode(id="iam:category:users", label="Users", node_type="category", service="iam", expandable=True, metadata={"category": "users"}),

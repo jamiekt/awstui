@@ -20,6 +20,17 @@ class AWSServicePlugin(ABC):
     def service_name(self) -> str:
         """boto3 service name, e.g. 's3', 'lambda'."""
 
+    @property
+    def has_flat_root(self) -> bool:
+        """True if get_root_nodes returns resource nodes directly.
+
+        False for services that expose intermediate category nodes
+        (e.g. IAM has Users/Roles/Policies/Groups; RDS has DB
+        Instances/DB Clusters). Used to decide whether a count can
+        be shown when the service root is selected.
+        """
+        return True
+
     @abstractmethod
     def get_root_nodes(self, session: boto3.Session) -> list[TreeNode]:
         """Return top-level resource nodes for this service."""

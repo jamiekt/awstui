@@ -15,6 +15,10 @@ class RDSPlugin(AWSServicePlugin):
     def service_name(self) -> str:
         return "rds"
 
+    @property
+    def has_flat_root(self) -> bool:
+        return False
+
     def get_root_nodes(self, session: boto3.Session) -> list[TreeNode]:
         return [
             TreeNode(id="rds:category:instances", label="DB Instances", node_type="category", service="rds", expandable=True, metadata={"category": "instances"}),

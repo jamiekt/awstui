@@ -9,8 +9,9 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Static
+from textual import work
 
-from awstui.models import ResourceDetails
+from awstui.models import ResourceDetails, TreeNode
 from awstui.services import discover_plugins
 from awstui.widgets.detail_pane import DetailPane
 from awstui.widgets.nav_tree import AWSNavTree, NodeError, NodeSelected
@@ -63,6 +64,7 @@ class AWSBrowserApp(App):
         self._region: str = "us-east-1"
         self._plugin_registry = None
         self._current_raw: object = {}
+        self._selection_seq: int = 0
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -119,22 +121,29 @@ class AWSBrowserApp(App):
             self._current_raw = {}
             return
 
+        self._selection_seq += 1
+
         if node_data.node_type == "service":
-            detail.show_details(
-                ResourceDetails(
-                    title=plugin.name,
-                    subtitle=f"boto3 service: {plugin.service_name}",
-                    summary={},
-                    raw={},
-                )
+            resource_details = ResourceDetails(
+                title=plugin.name,
+                subtitle=f"boto3 service: {plugin.service_name}",
+                summary={},
+                raw={},
             )
-            self._current_raw = {}
+            if plugin.has_flat_root:
+                detail.show_details(
+                    resource_details,
+                    empty_summary_status="Retrieving count ...",
+                )
+                self._current_raw = {}
+                self._load_child_count(node_data, self._selection_seq)
+            else:
+                detail.show_details(resource_details)
+                self._current_raw = {}
             return
 
         try:
             details = plugin.get_details(self._session, node_data)
-            detail.show_details(details)
-            self._current_raw = details.raw
         except ClientError as e:
             error_code = e.response["Error"].get("Code", "")
             if error_code in ("AccessDenied", "AccessDeniedException", "UnauthorizedAccess"):
@@ -142,13 +151,28 @@ class AWSBrowserApp(App):
             else:
                 detail.show_error(f"Error loading details: {e}")
             self._current_raw = {}
+            return
         except Exception as e:
             detail.show_error(f"Error loading details: {e}")
             self._current_raw = {}
+            return
+
+        # For container nodes (no summary of their own), show a fetching
+        # placeholder *at mount time* and kick off a background count.
+        is_container = not details.summary and node_data.expandable
+        if is_container:
+            detail.show_details(details, empty_summary_status="Retrieving count ...")
+        else:
+            detail.show_details(details)
+        self._current_raw = details.raw
+
+        if is_container:
+            self._load_child_count(node_data, self._selection_seq)
 
     def on_node_error(self, message: NodeError) -> None:
         self.query_one("#detail-pane", DetailPane).show_error(message.error_message)
         self._current_raw = {}
+        self._selection_seq += 1
 
     def action_focus_region(self) -> None:
         try:
@@ -194,6 +218,64 @@ class AWSBrowserApp(App):
                 severity="warning",
             )
 
+    @staticmethod
+    def _noun_for(label: str) -> str:
+        """Derive a lowercase noun from a container node label.
+
+        'Users' -> 'users', 'DB Instances' -> 'instances',
+        'Attached Policies' -> 'policies', 'Access Keys' -> 'keys'.
+        """
+        last = label.strip().split()[-1] if label.strip() else "items"
+        return last.lower()
+
+    @staticmethod
+    def _pluralize(word: str) -> str:
+        if not word:
+            return "items"
+        if word.endswith("y") and len(word) > 1 and word[-2] not in "aeiou":
+            return word[:-1] + "ies"
+        if word.endswith(("s", "x", "z", "ch", "sh")):
+            return word + "es"
+        return word + "s"
+
+    @work(thread=True, exclusive=True, group="child_count")
+    def _load_child_count(self, node: TreeNode, seq: int) -> None:
+        plugin = self._plugin_registry.get(node.service) if self._plugin_registry else None
+        if plugin is None or self._session is None:
+            return
+
+        try:
+            if node.node_type == "service":
+                children = plugin.get_root_nodes(self._session)
+                # Derive noun from the first child's node_type (e.g. 'bucket', 'function').
+                # Falls back to the plugin name if there are no children.
+                base = children[0].node_type.replace("_", " ") if children else plugin.name.lower()
+                noun = self._pluralize(base)
+            else:
+                children = plugin.get_children(self._session, node)
+                noun = self._noun_for(node.label)
+            count = len(children)
+            message = f"{count} {noun}"
+        except ClientError as e:
+            error_code = e.response["Error"].get("Code", "")
+            if error_code in ("AccessDenied", "AccessDeniedException", "UnauthorizedAccess"):
+                message = "Access Denied: cannot count items"
+            else:
+                message = f"Error counting items: {e}"
+        except Exception as e:
+            message = f"Error counting items: {e}"
+
+        self.call_from_thread(self._apply_child_count, seq, message)
+
+    def _apply_child_count(self, seq: int, message: str) -> None:
+        # Drop stale results if the user has since selected a different node.
+        if seq != self._selection_seq:
+            return
+        try:
+            self.query_one("#detail-pane", DetailPane).set_summary_status(message)
+        except Exception:
+            pass
+
     def _find_arn(self, obj: object) -> str:
         """Recursively find an ARN in a raw API response.
 
@@ -233,3 +315,4 @@ class AWSBrowserApp(App):
 
         self.query_one("#detail-pane", DetailPane).show_placeholder()
         self._current_raw = {}
+        self._selection_seq += 1

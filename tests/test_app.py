@@ -55,3 +55,35 @@ def test_find_arn_returns_empty_when_missing():
 def test_find_arn_empty_input():
     app = AWSBrowserApp()
     assert app._find_arn({}) == ""
+
+
+def test_noun_for_single_word():
+    assert AWSBrowserApp._noun_for("Users") == "users"
+
+
+def test_noun_for_multi_word():
+    assert AWSBrowserApp._noun_for("DB Instances") == "instances"
+    assert AWSBrowserApp._noun_for("Attached Policies") == "policies"
+    assert AWSBrowserApp._noun_for("Access Keys") == "keys"
+
+
+def test_noun_for_empty_label():
+    assert AWSBrowserApp._noun_for("") == "items"
+    assert AWSBrowserApp._noun_for("   ") == "items"
+
+
+def test_pluralize_simple():
+    assert AWSBrowserApp._pluralize("bucket") == "buckets"
+    assert AWSBrowserApp._pluralize("function") == "functions"
+    assert AWSBrowserApp._pluralize("queue") == "queues"
+    assert AWSBrowserApp._pluralize("topic") == "topics"
+    assert AWSBrowserApp._pluralize("secret") == "secrets"
+
+
+def test_pluralize_sibilants():
+    # keeps 'es' suffix behavior for words ending in s/x/z/ch/sh
+    assert AWSBrowserApp._pluralize("box") == "boxes"
+
+
+def test_pluralize_empty():
+    assert AWSBrowserApp._pluralize("") == "items"

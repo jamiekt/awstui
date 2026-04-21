@@ -47,8 +47,17 @@ class DetailPane(Static, can_focus=True):
     def compose(self) -> ComposeResult:
         yield Static("Select a resource to view details")
 
-    def show_details(self, details: ResourceDetails) -> None:
-        """Display resource details with Summary and Raw JSON tabs."""
+    def show_details(
+        self,
+        details: ResourceDetails,
+        empty_summary_status: str = "No summary available",
+    ) -> None:
+        """Display resource details with Summary and Raw JSON tabs.
+
+        `empty_summary_status` is the text shown in the Summary tab when
+        `details.summary` is empty (e.g. "Retrieving count ..." while a
+        child-count fetch is in flight).
+        """
         self.remove_children()
 
         self.mount(Static(details.title, classes="detail-title"))
@@ -76,7 +85,7 @@ class DetailPane(Static, can_focus=True):
                     )
                 )
         else:
-            summary_pane.mount(Static("No summary available"))
+            summary_pane.mount(Static(empty_summary_status, id="summary-status"))
 
         raw_json = json.dumps(details.raw, indent=2, default=str)
         raw_pane.mount(
@@ -84,6 +93,13 @@ class DetailPane(Static, can_focus=True):
                 Static(Syntax(raw_json, "json", theme="monokai", line_numbers=False))
             )
         )
+
+    def set_summary_status(self, message: str) -> None:
+        """Update the summary status line (used for lazy-loaded counts)."""
+        try:
+            self.query_one("#summary-status", Static).update(message)
+        except Exception:
+            pass
 
     def show_error(self, message: str) -> None:
         """Display an error message."""

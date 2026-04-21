@@ -91,7 +91,7 @@ class AWSNavTree(Tree[TreeNode]):
         except Exception as e:
             self.post_message(NodeError(f"Error loading {data.label}: {e}"))
 
-    def on_tree_node_selected(self, event: Tree.NodeSelected[TreeNode]) -> None:
+    def on_tree_node_highlighted(self, event: Tree.NodeHighlighted[TreeNode]) -> None:
         if event.node.data is not None:
             self.post_message(NodeSelected(event.node.data))
 
