@@ -4,7 +4,7 @@ import json
 
 import boto3
 import pyperclip
-from botocore.exceptions import ClientError, NoCredentialsError
+from botocore.exceptions import ClientError, NoCredentialsError, ProfileNotFound
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -57,8 +57,9 @@ class AWSBrowserApp(App):
     }
     """
 
-    def __init__(self) -> None:
+    def __init__(self, profile: str | None = None) -> None:
         super().__init__()
+        self._profile: str | None = profile
         self._session: boto3.Session | None = None
         self._identity: str = ""
         self._region: str = "us-east-1"
@@ -78,8 +79,11 @@ class AWSBrowserApp(App):
 
     def on_mount(self) -> None:
         try:
-            self._session = boto3.Session()
+            self._session = self._build_session()
             self._region = self._session.region_name or "us-east-1"
+        except ProfileNotFound as e:
+            self.query_one("#detail-pane", DetailPane).show_error(str(e))
+            return
         except NoCredentialsError:
             self.query_one("#detail-pane", DetailPane).show_error(
                 "No AWS credentials found. Configure credentials and restart."
@@ -93,6 +97,9 @@ class AWSBrowserApp(App):
             self._identity = identity.get("Arn", "Unknown")
         except (ClientError, Exception):
             self._identity = "Unknown (could not fetch identity)"
+
+        if self._profile:
+            self._identity = f"[profile: {self._profile}] {self._identity}"
 
         self.query_one("#identity-bar", Static).update(self._identity)
 
@@ -302,12 +309,20 @@ class AWSBrowserApp(App):
                     return found
         return ""
 
+    def _build_session(self, region_name: str | None = None) -> boto3.Session:
+        kwargs: dict[str, str] = {}
+        if self._profile:
+            kwargs["profile_name"] = self._profile
+        if region_name:
+            kwargs["region_name"] = region_name
+        return boto3.Session(**kwargs)
+
     def on_region_changed(self, message: RegionChanged) -> None:
         if message.region == self._region:
             return
 
         self._region = message.region
-        self._session = boto3.Session(region_name=self._region)
+        self._session = self._build_session(region_name=self._region)
 
         tree = self.query_one(AWSNavTree)
         tree.session = self._session

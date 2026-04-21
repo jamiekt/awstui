@@ -26,9 +26,10 @@ uv sync
 
 ```bash
 uv run awstui
+uv run awstui --profile my-profile       # use a specific AWS profile
 ```
 
-Uses your existing AWS credentials (environment variables, `~/.aws/credentials`, SSO — whatever boto3 resolves).
+Uses your existing AWS credentials (environment variables, `~/.aws/credentials`, SSO — whatever boto3 resolves). Pass `--profile`/`-p` to override the profile explicitly.
 
 ## Running Tests
 
