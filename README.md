@@ -10,6 +10,10 @@ A read-only terminal UI for browsing AWS resources, built with [Textual](https:/
 - Pluggable service architecture — easy to add new AWS services
 - Graceful handling of permission errors
 
+## Screenshot
+
+![Screenshot](docs/images/scr1.png)
+
 ### Supported Services
 
 S3, Lambda, RDS, IAM, SQS, SNS, Secrets Manager
