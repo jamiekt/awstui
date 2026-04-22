@@ -6,7 +6,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
-from textual.widgets import Static, TabbedContent, TabPane
+from textual.widgets import ProgressBar, Static, TabbedContent, TabPane
 
 from awstui.models import ResourceDetails
 
@@ -51,12 +51,16 @@ class DetailPane(Static, can_focus=True):
         self,
         details: ResourceDetails,
         empty_summary_status: str = "No summary available",
+        include_tag_summary: bool = False,
     ) -> None:
-        """Display resource details with Summary and Raw JSON tabs.
+        """Display resource details with Summary, Raw JSON, and optionally Tag Summary tabs.
 
         `empty_summary_status` is the text shown in the Summary tab when
         `details.summary` is empty (e.g. "Retrieving count ..." while a
         child-count fetch is in flight).
+
+        `include_tag_summary` adds a third "Tag Summary" tab that stays empty
+        until the caller populates it via `set_tag_summary`.
         """
         self.remove_children()
 
@@ -72,6 +76,16 @@ class DetailPane(Static, can_focus=True):
 
         tabbed.add_pane(summary_pane)
         tabbed.add_pane(raw_pane)
+
+        if include_tag_summary:
+            tag_pane = TabPane("Tag Summary", id="tab-tag-summary")
+            tabbed.add_pane(tag_pane)
+            tag_pane.mount(
+                Static(
+                    "Select this tab to load tag summary",
+                    classes="tag-summary-status",
+                )
+            )
 
         if details.summary:
             for label, value in details.summary.items():
@@ -100,6 +114,54 @@ class DetailPane(Static, can_focus=True):
             self.query_one("#summary-status", Static).update(message)
         except Exception:
             pass
+
+    def start_tag_summary_progress(self, total: int) -> None:
+        """Replace the Tag Summary tab with a progress bar."""
+        try:
+            tag_pane = self.query_one("#tab-tag-summary", TabPane)
+        except Exception:
+            return
+        for child in list(tag_pane.children):
+            child.remove()
+        tag_pane.mount(
+            Static(
+                f"Retrieving tag summary for {total} items ...",
+                classes="tag-summary-status",
+            )
+        )
+        tag_pane.mount(ProgressBar(total=total, show_eta=False, id="tag-progress"))
+
+    def advance_tag_summary_progress(self, amount: int = 1) -> None:
+        """Advance the tag-summary progress bar."""
+        try:
+            self.query_one("#tag-progress", ProgressBar).advance(amount)
+        except Exception:
+            pass
+
+    def set_tag_summary(self, rows: dict[str, str]) -> None:
+        """Replace the Tag Summary tab content with one row per tag key."""
+        try:
+            tag_pane = self.query_one("#tab-tag-summary", TabPane)
+        except Exception:
+            return
+        # Remove the placeholder Static (if present) and any previously
+        # mounted rows. Use .remove() per child so IDs are freed synchronously
+        # before we mount replacements.
+        for child in list(tag_pane.children):
+            child.remove()
+        if not rows:
+            tag_pane.mount(Static("No tags found", classes="tags-empty"))
+            return
+        for label, value in rows.items():
+            tag_pane.mount(
+                Static(
+                    Text.assemble(
+                        (f"{label}: ", "bold dim"),
+                        (str(value), ""),
+                    ),
+                    classes="summary-row",
+                )
+            )
 
     def show_error(self, message: str) -> None:
         """Display an error message."""

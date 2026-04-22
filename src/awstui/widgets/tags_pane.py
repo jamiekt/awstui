@@ -60,6 +60,11 @@ class TagsPane(Static, can_focus=True):
         self.mount(Static("Select a resource to view tags", classes="tags-empty"))
 
 
+def extract_tags(raw: object) -> dict[str, str]:
+    """Public alias of _extract_tags."""
+    return _extract_tags(raw)
+
+
 def _extract_tags(raw: object) -> dict[str, str]:
     """Find tags in a boto3 response, regardless of shape.
 

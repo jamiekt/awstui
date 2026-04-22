@@ -9,7 +9,7 @@ from botocore.exceptions import ClientError, NoCredentialsError, ProfileNotFound
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Footer, Header, Static
+from textual.widgets import Footer, Header, Static, TabbedContent, TabPane
 from textual import work
 
 from awstui.models import ResourceDetails, TreeNode
@@ -17,7 +17,7 @@ from awstui.services import discover_plugins
 from awstui.widgets.detail_pane import DetailPane
 from awstui.widgets.nav_tree import AWSNavTree, NodeError, NodeSelected
 from awstui.widgets.region_selector import RegionChanged, RegionSelector
-from awstui.widgets.tags_pane import TagsPane
+from awstui.widgets.tags_pane import TagsPane, extract_tags
 
 
 def _get_version() -> str:
@@ -82,6 +82,8 @@ class AWSBrowserApp(App):
         self._plugin_registry = None
         self._current_raw: object = {}
         self._selection_seq: int = 0
+        self._current_container_node: TreeNode | None = None
+        self._tag_summary_seq: int = -1
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -150,6 +152,7 @@ class AWSBrowserApp(App):
             return
 
         self._selection_seq += 1
+        self._current_container_node = None
 
         if node_data.node_type == "service":
             resource_details = ResourceDetails(
@@ -162,8 +165,10 @@ class AWSBrowserApp(App):
                 detail.show_details(
                     resource_details,
                     empty_summary_status="Retrieving count ...",
+                    include_tag_summary=True,
                 )
                 self._current_raw = {}
+                self._current_container_node = node_data
                 self._load_child_count(node_data, self._selection_seq)
             else:
                 detail.show_details(resource_details)
@@ -198,7 +203,12 @@ class AWSBrowserApp(App):
         # placeholder *at mount time* and kick off a background count.
         is_container = not details.summary and node_data.expandable
         if is_container:
-            detail.show_details(details, empty_summary_status="Retrieving count ...")
+            detail.show_details(
+                details,
+                empty_summary_status="Retrieving count ...",
+                include_tag_summary=True,
+            )
+            self._current_container_node = node_data
         else:
             detail.show_details(details)
         self._current_raw = details.raw
@@ -360,6 +370,88 @@ class AWSBrowserApp(App):
         except Exception:
             pass
 
+    @work(thread=True, exclusive=True, group="tag_summary")
+    def _load_tag_summary(self, node: TreeNode, seq: int) -> None:
+        plugin = (
+            self._plugin_registry.get(node.service) if self._plugin_registry else None
+        )
+        if plugin is None or self._session is None:
+            return
+
+        try:
+            if node.node_type == "service":
+                children = plugin.get_root_nodes(self._session)
+            else:
+                children = plugin.get_children(self._session, node)
+        except Exception as e:
+            self.call_from_thread(self._apply_tag_summary, seq, {"Error": f"{e}"})
+            return
+
+        self.call_from_thread(self._start_tag_summary_progress, seq, len(children))
+
+        aggregated: dict[str, set[str]] = {}
+        for child in children:
+            try:
+                child_details = plugin.get_details(self._session, child)
+            except Exception:
+                self.call_from_thread(self._advance_tag_summary_progress, seq)
+                continue
+            for k, v in extract_tags(child_details.raw).items():
+                aggregated.setdefault(k, set()).add(v)
+            self.call_from_thread(self._advance_tag_summary_progress, seq)
+
+        rows = {key: ", ".join(sorted(aggregated[key])) for key in sorted(aggregated)}
+        self.call_from_thread(self._apply_tag_summary, seq, rows)
+
+    def _apply_tag_summary(self, seq: int, rows: dict[str, str]) -> None:
+        if seq != self._selection_seq:
+            return
+        try:
+            self.query_one("#detail-pane", DetailPane).set_tag_summary(rows)
+        except Exception:
+            pass
+
+    def _start_tag_summary_progress(self, seq: int, total: int) -> None:
+        if seq != self._selection_seq:
+            return
+        try:
+            self.query_one("#detail-pane", DetailPane).start_tag_summary_progress(total)
+        except Exception:
+            pass
+
+    def _advance_tag_summary_progress(self, seq: int) -> None:
+        if seq != self._selection_seq:
+            return
+        try:
+            self.query_one("#detail-pane", DetailPane).advance_tag_summary_progress()
+        except Exception:
+            pass
+
+    def on_tabbed_content_tab_activated(
+        self, event: TabbedContent.TabActivated
+    ) -> None:
+        if event.pane.id != "tab-tag-summary":
+            return
+        if self._current_container_node is None:
+            return
+        try:
+            tag_pane = self.query_one("#tab-tag-summary", TabPane)
+        except Exception:
+            return
+        # Only fetch once per selection — re-activating an already-populated
+        # tab shouldn't re-trigger the work.
+        if self._tag_summary_seq == self._selection_seq:
+            return
+        self._tag_summary_seq = self._selection_seq
+        try:
+            status = tag_pane.query_one(".tag-summary-status", Static)
+            status.update("Retrieving tag summary ...")
+        except Exception:
+            tag_pane.mount(
+                Static("Retrieving tag summary ...", classes="tag-summary-status")
+            )
+        self._load_tag_summary(self._current_container_node, self._selection_seq)
+
     def _find_arn(self, obj: object) -> str:
         """Recursively find an ARN in a raw API response.
 
@@ -409,3 +501,4 @@ class AWSBrowserApp(App):
         self.query_one("#tags-pane", TagsPane).show_placeholder()
         self._current_raw = {}
         self._selection_seq += 1
+        self._current_container_node = None
