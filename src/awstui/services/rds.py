@@ -37,6 +37,14 @@ class RDSPlugin(AWSServicePlugin):
                 expandable=True,
                 metadata={"category": "clusters"},
             ),
+            TreeNode(
+                id="rds:category:subnet_groups",
+                label="Subnet Groups",
+                node_type="category",
+                service="rds",
+                expandable=True,
+                metadata={"category": "subnet_groups"},
+            ),
         ]
 
     def get_children(self, session: boto3.Session, node: TreeNode) -> list[TreeNode]:
@@ -68,6 +76,20 @@ class RDSPlugin(AWSServicePlugin):
                     metadata={"db_cluster_id": c["DBClusterIdentifier"]},
                 )
                 for c in response.get("DBClusters", [])
+            ]
+
+        if node.metadata.get("category") == "subnet_groups":
+            response = client.describe_db_subnet_groups()
+            return [
+                TreeNode(
+                    id=f"rds:subnet_group:{g['DBSubnetGroupName']}",
+                    label=g["DBSubnetGroupName"],
+                    node_type="db_subnet_group",
+                    service="rds",
+                    expandable=False,
+                    metadata={"db_subnet_group_name": g["DBSubnetGroupName"]},
+                )
+                for g in response.get("DBSubnetGroups", [])
             ]
 
         return []
@@ -115,6 +137,29 @@ class RDSPlugin(AWSServicePlugin):
                     "Members": str(len(cluster.get("DBClusterMembers", []))),
                 },
                 raw=cluster,
+            )
+
+        if node.node_type == "db_subnet_group":
+            response = client.describe_db_subnet_groups(
+                DBSubnetGroupName=node.metadata["db_subnet_group_name"]
+            )
+            group = response["DBSubnetGroups"][0]
+            arn = group.get("DBSubnetGroupArn", "")
+            if arn:
+                tags_response = client.list_tags_for_resource(ResourceName=arn)
+                group["TagList"] = tags_response.get("TagList", [])
+            subnets = group.get("Subnets", [])
+            return ResourceDetails(
+                title=f"RDS Subnet Group: {group['DBSubnetGroupName']}",
+                subtitle=arn,
+                summary={
+                    "Name": group.get("DBSubnetGroupName", ""),
+                    "Description": group.get("DBSubnetGroupDescription", ""),
+                    "VPC": group.get("VpcId", ""),
+                    "Status": group.get("SubnetGroupStatus", ""),
+                    "Subnets": str(len(subnets)),
+                },
+                raw=group,
             )
 
         if node.node_type == "category":

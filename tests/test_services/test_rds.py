@@ -18,10 +18,11 @@ def test_get_root_nodes_returns_categories():
     plugin = RDSPlugin()
     nodes = plugin.get_root_nodes(session)
 
-    assert len(nodes) == 2
+    assert len(nodes) == 3
     labels = [n.label for n in nodes]
     assert "DB Instances" in labels
     assert "DB Clusters" in labels
+    assert "Subnet Groups" in labels
     assert all(n.expandable for n in nodes)
     assert all(n.node_type == "category" for n in nodes)
 
