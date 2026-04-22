@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import boto3
 from botocore.exceptions import ClientError
+from textual.binding import Binding
 from textual.message import Message
 from textual.widgets import Tree
 
@@ -27,6 +28,11 @@ class NodeError(Message):
 
 class AWSNavTree(Tree[TreeNode]):
     """Navigation tree for browsing AWS resources."""
+
+    BINDINGS = [
+        Binding("left", "collapse_or_parent", "Collapse / parent", show=False),
+        Binding("right", "expand_or_child", "Expand / child", show=False),
+    ]
 
     def __init__(self, session: boto3.Session, plugins: list[AWSServicePlugin]) -> None:
         super().__init__("AWS Services")
@@ -104,6 +110,32 @@ class AWSNavTree(Tree[TreeNode]):
     def on_tree_node_highlighted(self, event: Tree.NodeHighlighted[TreeNode]) -> None:
         if event.node.data is not None:
             self.post_message(NodeSelected(event.node.data))
+
+    def action_collapse_or_parent(self) -> None:
+        """Collapse the current node; if already collapsed, move to parent."""
+        node = self.cursor_node
+        if node is None:
+            return
+        if node.allow_expand and node.is_expanded:
+            node.collapse()
+            return
+        parent = node.parent
+        if parent is not None and parent is not self.root:
+            self.select_node(parent)
+            self.scroll_to_node(parent)
+
+    def action_expand_or_child(self) -> None:
+        """Expand the current node; if already expanded, move to first child."""
+        node = self.cursor_node
+        if node is None or not node.allow_expand:
+            return
+        if not node.is_expanded:
+            node.expand()
+            return
+        if node.children:
+            first = node.children[0]
+            self.select_node(first)
+            self.scroll_to_node(first)
 
     def reset_tree(self) -> None:
         """Clear and repopulate the tree (e.g. after region switch)."""
