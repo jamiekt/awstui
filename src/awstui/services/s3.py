@@ -47,6 +47,14 @@ class S3Plugin(AWSServicePlugin):
                 metadata={"category": "table_buckets"},
             ),
             TreeNode(
+                id="s3:category:vector_buckets",
+                label="Vector buckets",
+                node_type="category",
+                service="s3",
+                expandable=True,
+                metadata={"category": "vector_buckets"},
+            ),
+            TreeNode(
                 id="s3:category:access_points",
                 label="Access points",
                 node_type="category",
@@ -103,6 +111,24 @@ class S3Plugin(AWSServicePlugin):
                     },
                 )
                 for b in response.get("tableBuckets", [])
+            ]
+
+        if node.metadata.get("category") == "vector_buckets":
+            client = session.client("s3vectors")
+            response = client.list_vector_buckets()
+            return [
+                TreeNode(
+                    id=f"s3:vector_bucket:{b['vectorBucketArn']}",
+                    label=b["vectorBucketName"],
+                    node_type="vector_bucket",
+                    service="s3",
+                    expandable=False,
+                    metadata={
+                        "vector_bucket_name": b["vectorBucketName"],
+                        "vector_bucket_arn": b["vectorBucketArn"],
+                    },
+                )
+                for b in response.get("vectorBuckets", [])
             ]
 
         if node.metadata.get("category") == "access_points":
@@ -221,6 +247,27 @@ class S3Plugin(AWSServicePlugin):
                 subtitle=f"arn:aws:s3express:::{bucket}",
                 summary={"Name": bucket},
                 raw={"Name": bucket},
+            )
+
+        if node.node_type == "vector_bucket":
+            vclient = session.client("s3vectors")
+            arn = node.metadata["vector_bucket_arn"]
+            name = node.metadata["vector_bucket_name"]
+            response = vclient.get_vector_bucket(vectorBucketName=name)
+            bucket = response.get("vectorBucket", {})
+            try:
+                tags_response = vclient.list_tags_for_resource(resourceArn=arn)
+                bucket["TagList"] = tags_response.get("tags", [])
+            except ClientError:
+                bucket["TagList"] = []
+            return ResourceDetails(
+                title=f"S3 Vector Bucket: {bucket.get('vectorBucketName', name)}",
+                subtitle=arn,
+                summary={
+                    "Name": bucket.get("vectorBucketName", ""),
+                    "Created": str(bucket.get("creationTime", "")),
+                },
+                raw=bucket,
             )
 
         if node.node_type == "access_point":

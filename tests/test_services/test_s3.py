@@ -19,12 +19,13 @@ def test_get_root_nodes_returns_categories():
     plugin = S3Plugin()
     nodes = plugin.get_root_nodes(session)
 
-    assert len(nodes) == 4
+    assert len(nodes) == 5
     labels = [n.label for n in nodes]
     assert "General purpose buckets" in labels
     assert "Directory buckets" in labels
     assert "Table buckets" in labels
     assert "Access points" in labels
+    assert "Vector buckets" in labels
     assert all(n.node_type == "category" for n in nodes)
     assert all(n.expandable for n in nodes)
 
