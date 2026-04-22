@@ -12,7 +12,8 @@ A read-only terminal UI for browsing AWS resources, built with [Textual](https:/
 
 ## Screenshot
 
-![Screenshot](https://raw.githubusercontent.com/jamiekt/awstui/main/docs/images/scr1.png)
+![Start](https://raw.githubusercontent.com/jamiekt/awstui/main/docs/images/scr2.png)
+![Tag summary](https://raw.githubusercontent.com/jamiekt/awstui/main/docs/images/scr1.png)
 
 ### Supported Services
 
