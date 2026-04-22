@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      release_notes:
+        description: "Text to prepend to the GitHub release notes"
+        required: false
+        default: ""
 
 jobs:
   test-and-build:
@@ -110,9 +115,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.test-and-build.outputs.version }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
         run: |
+          pypi_line="Published to PyPI: https://pypi.org/project/awstui/${VERSION}/"
+          if [ -n "${RELEASE_NOTES}" ]; then
+            notes="${RELEASE_NOTES}"$'\n\n'"${pypi_line}"
+          else
+            notes="${pypi_line}"
+          fi
           gh release create "v${VERSION}" \
             --target "${GITHUB_SHA}" \
             --title "v${VERSION}" \
-            --notes "Published to PyPI: https://pypi.org/project/awstui/${VERSION}/" \
+            --notes "${notes}" \
             dist/*
