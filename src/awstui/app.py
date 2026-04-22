@@ -38,6 +38,8 @@ class AWSBrowserApp(App):
         Binding("4", "focus_tags", "Tags"),
         Binding("c", "copy_arn", "Copy ARN"),
         Binding("r", "copy_raw", "Copy Raw"),
+        Binding("[", "shrink_pane", "Shrink"),
+        Binding("]", "grow_pane", "Grow"),
     ]
     CSS = """
     #main {
@@ -234,6 +236,35 @@ class AWSBrowserApp(App):
             self.query_one("#tags-pane", TagsPane).focus()
         except Exception:
             pass
+
+    PANE_IDS = ("nav-pane", "detail-pane", "tags-pane")
+    PANE_RESIZE_STEP = 4
+    PANE_MIN_WIDTH = 20
+
+    def _focused_pane(self):
+        widget = self.focused
+        while widget is not None:
+            if widget.id in self.PANE_IDS:
+                return widget
+            widget = widget.parent
+        return None
+
+    def _resize_focused_pane(self, delta: int) -> None:
+        pane = self._focused_pane()
+        if pane is None:
+            return
+        current = pane.size.width
+        new_width = max(self.PANE_MIN_WIDTH, current + delta)
+        pane.styles.width = new_width
+        if pane.id == "nav-pane":
+            # Override the CSS max-width constraint so nav can grow freely.
+            pane.styles.max_width = new_width
+
+    def action_shrink_pane(self) -> None:
+        self._resize_focused_pane(-self.PANE_RESIZE_STEP)
+
+    def action_grow_pane(self) -> None:
+        self._resize_focused_pane(self.PANE_RESIZE_STEP)
 
     def action_copy_arn(self) -> None:
         arn = self._find_arn(self._current_raw)
