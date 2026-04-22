@@ -13,6 +13,7 @@ from textual.widgets import Footer, Header, Static, TabbedContent, TabPane
 from textual import work
 
 from awstui.models import ResourceDetails, TreeNode
+from awstui.plugin import PluginRegistry
 from awstui.services import discover_plugins
 from awstui.widgets.detail_pane import DetailPane
 from awstui.widgets.nav_tree import AWSNavTree, NodeError, NodeSelected
@@ -79,7 +80,7 @@ class AWSBrowserApp(App):
         self._session: boto3.Session | None = None
         self._identity: str = ""
         self._region: str = "us-east-1"
-        self._plugin_registry = None
+        self._plugin_registry: PluginRegistry | None = None
         self._current_raw: object = {}
         self._selection_seq: int = 0
         self._current_container_node: TreeNode | None = None
