@@ -191,6 +191,9 @@ class DetailPane(Static, can_focus=True):
             tag_pane.mount(Static("No tags found", classes="tags-empty"))
             return
 
+        scroll = VerticalScroll()
+        tag_pane.mount(scroll)
+
         max_total = max(sum(v.values()) for v in aggregated.values())
         for key in sorted(aggregated):
             counts = aggregated[key]
@@ -211,8 +214,8 @@ class DetailPane(Static, can_focus=True):
             # count — bars for less-common keys visibly shrink.
             row.styles.width = f"{total / max_total * 100:.2f}%"
 
-            tag_pane.mount(Static(key, classes="tag-summary-key"))
-            tag_pane.mount(row)
+            scroll.mount(Static(key, classes="tag-summary-key"))
+            scroll.mount(row)
 
     def show_error(self, message: str) -> None:
         """Display an error message."""
