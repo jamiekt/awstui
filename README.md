@@ -10,7 +10,7 @@ A read-only terminal UI for browsing AWS resources, built with [Textual](https:/
 - Pluggable service architecture — easy to add new AWS services
 - Graceful handling of permission errors
 
-## Screenshot
+## Screenshots
 
 ![Start](https://raw.githubusercontent.com/jamiekt/awstui/main/docs/images/scr2.png)
 ![Tag summary](https://raw.githubusercontent.com/jamiekt/awstui/main/docs/images/scr1.png)
