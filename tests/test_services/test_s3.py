@@ -13,7 +13,23 @@ def test_s3_plugin_properties():
     assert plugin.service_name == "s3"
 
 
-def test_get_root_nodes_returns_buckets():
+def test_get_root_nodes_returns_categories():
+    session = make_session()
+
+    plugin = S3Plugin()
+    nodes = plugin.get_root_nodes(session)
+
+    assert len(nodes) == 4
+    labels = [n.label for n in nodes]
+    assert "General purpose buckets" in labels
+    assert "Directory buckets" in labels
+    assert "Table buckets" in labels
+    assert "Access points" in labels
+    assert all(n.node_type == "category" for n in nodes)
+    assert all(n.expandable for n in nodes)
+
+
+def test_get_children_of_general_purpose_buckets_category():
     session = make_session()
     client = session.client.return_value
     client.list_buckets.return_value = {
@@ -23,14 +39,25 @@ def test_get_root_nodes_returns_buckets():
         ]
     }
 
-    plugin = S3Plugin()
-    nodes = plugin.get_root_nodes(session)
+    from awstui.models import TreeNode
 
-    assert len(nodes) == 2
-    assert nodes[0].label == "bucket-a"
-    assert nodes[0].node_type == "bucket"
-    assert nodes[0].expandable is True
-    assert nodes[0].metadata["bucket_name"] == "bucket-a"
+    category_node = TreeNode(
+        id="s3:category:general_purpose_buckets",
+        label="General purpose buckets",
+        node_type="category",
+        service="s3",
+        expandable=True,
+        metadata={"category": "general_purpose_buckets"},
+    )
+
+    plugin = S3Plugin()
+    children = plugin.get_children(session, category_node)
+
+    assert len(children) == 2
+    assert children[0].label == "bucket-a"
+    assert children[0].node_type == "bucket"
+    assert children[0].expandable is True
+    assert children[0].metadata["bucket_name"] == "bucket-a"
 
 
 def test_get_children_of_bucket_lists_prefixes_and_objects():
