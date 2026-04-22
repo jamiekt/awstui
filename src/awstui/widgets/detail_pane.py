@@ -72,9 +72,17 @@ class DetailPane(Static, can_focus=True):
         height: 1;
         margin-bottom: 0;
     }
+    .tag-summary-bar-stack {
+        height: 1;
+    }
     .tag-summary-segment {
         height: 1;
         overflow: hidden;
+    }
+    .tag-summary-total {
+        width: auto;
+        margin-left: 1;
+        color: $text-muted;
     }
     """
 
@@ -210,10 +218,18 @@ class DetailPane(Static, can_focus=True):
                 seg.tooltip = f"{value}: {count}"
                 segments.append(seg)
 
-            row = Horizontal(*segments, classes="tag-summary-row")
-            # Row width relative to the key with the highest total resource
-            # count — bars for less-common keys visibly shrink.
-            row.styles.width = f"{total / max_total * 100:.2f}%"
+            # The bar itself is a container whose width is scaled by the
+            # key's total count relative to the largest key. The total label
+            # sits outside the bar so its width isn't affected by the
+            # scaling.
+            bar = Horizontal(*segments, classes="tag-summary-bar-stack")
+            bar.styles.width = f"{total / max_total * 100:.2f}%"
+
+            row = Horizontal(
+                bar,
+                Static(str(total), classes="tag-summary-total"),
+                classes="tag-summary-row",
+            )
 
             scroll.mount(Static(key, classes="tag-summary-key"))
             scroll.mount(row)
