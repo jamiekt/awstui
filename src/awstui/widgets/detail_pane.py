@@ -74,6 +74,7 @@ class DetailPane(Static, can_focus=True):
     }
     .tag-summary-segment {
         height: 1;
+        overflow: hidden;
     }
     """
 
@@ -203,7 +204,7 @@ class DetailPane(Static, can_focus=True):
 
             segments: list[Static] = []
             for (value, count), color in zip(ordered, palette, strict=True):
-                seg = Static(" ", classes="tag-summary-segment")
+                seg = Static(value, classes="tag-summary-segment")
                 seg.styles.background = color
                 seg.styles.width = f"{count}fr"
                 seg.tooltip = f"{value}: {count}"
