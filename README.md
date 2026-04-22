@@ -5,6 +5,8 @@ A read-only terminal UI for browsing AWS resources, built with [Textual](https:/
 ## Features
 
 - Browse AWS resources in a tree-based navigation pane
+- View tags for selected resources
+- View tag summary for collections of resources
 - View resource details in a Summary or Raw JSON tab
 - Switch regions on the fly
 - Pluggable service architecture — easy to add new AWS services
