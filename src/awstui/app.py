@@ -389,7 +389,7 @@ class AWSBrowserApp(App):
 
         self.call_from_thread(self._start_tag_summary_progress, seq, len(children))
 
-        aggregated: dict[str, set[str]] = {}
+        aggregated: dict[str, dict[str, int]] = {}
         for child in children:
             try:
                 child_details = plugin.get_details(self._session, child)
@@ -397,17 +397,19 @@ class AWSBrowserApp(App):
                 self.call_from_thread(self._advance_tag_summary_progress, seq)
                 continue
             for k, v in extract_tags(child_details.raw).items():
-                aggregated.setdefault(k, set()).add(v)
+                counts = aggregated.setdefault(k, {})
+                counts[v] = counts.get(v, 0) + 1
             self.call_from_thread(self._advance_tag_summary_progress, seq)
 
-        rows = {key: ", ".join(sorted(aggregated[key])) for key in sorted(aggregated)}
-        self.call_from_thread(self._apply_tag_summary, seq, rows)
+        self.call_from_thread(self._apply_tag_summary, seq, aggregated)
 
-    def _apply_tag_summary(self, seq: int, rows: dict[str, str]) -> None:
+    def _apply_tag_summary(
+        self, seq: int, aggregated: dict[str, dict[str, int]]
+    ) -> None:
         if seq != self._selection_seq:
             return
         try:
-            self.query_one("#detail-pane", DetailPane).set_tag_summary(rows)
+            self.query_one("#detail-pane", DetailPane).set_tag_summary(aggregated)
         except Exception:
             pass
 

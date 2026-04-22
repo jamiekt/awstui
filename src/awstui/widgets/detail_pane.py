@@ -5,10 +5,28 @@ import json
 from rich.syntax import Syntax
 from rich.text import Text
 from textual.app import ComposeResult
-from textual.containers import VerticalScroll
+from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import ProgressBar, Static, TabbedContent, TabPane
 
 from awstui.models import ResourceDetails
+
+
+def _tag_segment_colors(count: int) -> list[str]:
+    """Generate `count` visually distinct hex colors via HSL hue rotation."""
+    if count <= 0:
+        return []
+    import colorsys
+
+    golden = 0.61803398875
+    sat_light = [(0.65, 0.55), (0.70, 0.45)]
+    colors: list[str] = []
+    hue = 0.08
+    for i in range(count):
+        s, light = sat_light[i % len(sat_light)]
+        r, g, b = colorsys.hls_to_rgb(hue, light, s)
+        colors.append(f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}")
+        hue = (hue + golden) % 1.0
+    return colors
 
 
 class DetailPane(Static, can_focus=True):
@@ -41,6 +59,21 @@ class DetailPane(Static, can_focus=True):
     }
     .summary-label {
         color: $text-muted;
+    }
+    .tag-summary-key {
+        text-style: bold;
+        color: $accent;
+        margin-top: 1;
+    }
+    .tag-summary-bar {
+        color: $text;
+    }
+    .tag-summary-row {
+        height: 1;
+        margin-bottom: 0;
+    }
+    .tag-summary-segment {
+        height: 1;
     }
     """
 
@@ -138,30 +171,48 @@ class DetailPane(Static, can_focus=True):
         except Exception:
             pass
 
-    def set_tag_summary(self, rows: dict[str, str]) -> None:
-        """Replace the Tag Summary tab content with one row per tag key."""
+    def set_tag_summary(self, aggregated: dict[str, dict[str, int]]) -> None:
+        """Render the Tag Summary tab as horizontal stacked bar charts.
+
+        `aggregated` is {tag_key: {tag_value: count_of_resources}}.
+        Each tag key gets one stacked bar. Each value is a colored segment
+        sized proportionally to its count. Hovering a segment shows a
+        tooltip with the value and count.
+        """
         try:
             tag_pane = self.query_one("#tab-tag-summary", TabPane)
         except Exception:
             return
-        # Remove the placeholder Static (if present) and any previously
-        # mounted rows. Use .remove() per child so IDs are freed synchronously
-        # before we mount replacements.
+        # Remove the placeholder / progress bar / previous rows synchronously
+        # so IDs are freed before we mount replacements.
         for child in list(tag_pane.children):
             child.remove()
-        if not rows:
+        if not aggregated:
             tag_pane.mount(Static("No tags found", classes="tags-empty"))
             return
-        for label, value in rows.items():
-            tag_pane.mount(
-                Static(
-                    Text.assemble(
-                        (f"{label}: ", "bold dim"),
-                        (str(value), ""),
-                    ),
-                    classes="summary-row",
-                )
-            )
+
+        max_total = max(sum(v.values()) for v in aggregated.values())
+        for key in sorted(aggregated):
+            counts = aggregated[key]
+            total = sum(counts.values())
+            ordered = sorted(counts.items(), key=lambda kv: -kv[1])
+            palette = _tag_segment_colors(len(ordered))
+
+            segments: list[Static] = []
+            for (value, count), color in zip(ordered, palette, strict=True):
+                seg = Static(" ", classes="tag-summary-segment")
+                seg.styles.background = color
+                seg.styles.width = f"{count}fr"
+                seg.tooltip = f"{value}: {count}"
+                segments.append(seg)
+
+            row = Horizontal(*segments, classes="tag-summary-row")
+            # Row width relative to the key with the highest total resource
+            # count — bars for less-common keys visibly shrink.
+            row.styles.width = f"{total / max_total * 100:.2f}%"
+
+            tag_pane.mount(Static(key, classes="tag-summary-key"))
+            tag_pane.mount(row)
 
     def show_error(self, message: str) -> None:
         """Display an error message."""
