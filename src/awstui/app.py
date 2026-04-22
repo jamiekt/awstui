@@ -37,7 +37,7 @@ class AWSBrowserApp(App):
         Binding("2", "focus_nav", "Nav"),
         Binding("3", "focus_detail", "Detail"),
         Binding("4", "focus_tags", "Tags"),
-        Binding("c", "copy_arn", "Copy ARN"),
+        Binding("a", "copy_arn", "Copy ARN"),
         Binding("r", "copy_raw", "Copy Raw"),
         Binding("[", "shrink_pane", "Shrink"),
         Binding("]", "grow_pane", "Grow"),

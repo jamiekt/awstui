@@ -45,7 +45,7 @@ Uses your existing AWS credentials (environment variables, `~/.aws/credentials`,
 | `1` | Focus the region selector |
 | `2` | Focus the navigation tree |
 | `3` | Focus the detail pane |
-| `c` | Copy the ARN of the selected resource to the clipboard |
+| `a` | Copy the ARN of the selected resource to the clipboard |
 | `r` | Copy the Raw JSON of the selected resource to the clipboard |
 
 ## Running Tests
