@@ -17,6 +17,7 @@ from awstui.services import discover_plugins
 from awstui.widgets.detail_pane import DetailPane
 from awstui.widgets.nav_tree import AWSNavTree, NodeError, NodeSelected
 from awstui.widgets.region_selector import RegionChanged, RegionSelector
+from awstui.widgets.tags_pane import TagsPane
 
 
 def _get_version() -> str:
@@ -34,6 +35,7 @@ class AWSBrowserApp(App):
         Binding("1", "focus_region", "Region"),
         Binding("2", "focus_nav", "Nav"),
         Binding("3", "focus_detail", "Detail"),
+        Binding("4", "focus_tags", "Tags"),
         Binding("c", "copy_arn", "Copy ARN"),
         Binding("r", "copy_raw", "Copy Raw"),
     ]
@@ -48,7 +50,11 @@ class AWSBrowserApp(App):
         border-right: solid $primary;
     }
     #detail-pane {
-        width: 3fr;
+        width: 2fr;
+    }
+    #tags-pane {
+        width: 1fr;
+        min-width: 25;
     }
     #identity-bar {
         dock: top;
@@ -83,6 +89,7 @@ class AWSBrowserApp(App):
                 yield RegionSelector(self._region)
                 yield AWSNavTree(self._session, [])  # placeholder, replaced on_mount
             yield DetailPane(id="detail-pane")
+            yield TagsPane(id="tags-pane")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -128,6 +135,7 @@ class AWSBrowserApp(App):
 
     def on_node_selected(self, message: NodeSelected) -> None:
         detail = self.query_one("#detail-pane", DetailPane)
+        tags = self.query_one("#tags-pane", TagsPane)
         node_data = message.node_data
         if self._plugin_registry is None:
             return
@@ -135,6 +143,7 @@ class AWSBrowserApp(App):
 
         if plugin is None:
             detail.show_placeholder()
+            tags.show_placeholder()
             self._current_raw = {}
             return
 
@@ -157,6 +166,7 @@ class AWSBrowserApp(App):
             else:
                 detail.show_details(resource_details)
                 self._current_raw = {}
+            tags.show_placeholder()
             return
 
         try:
@@ -173,10 +183,12 @@ class AWSBrowserApp(App):
                 )
             else:
                 detail.show_error(f"Error loading details: {e}")
+            tags.show_placeholder()
             self._current_raw = {}
             return
         except Exception as e:
             detail.show_error(f"Error loading details: {e}")
+            tags.show_placeholder()
             self._current_raw = {}
             return
 
@@ -188,12 +200,14 @@ class AWSBrowserApp(App):
         else:
             detail.show_details(details)
         self._current_raw = details.raw
+        tags.show_tags(details.raw)
 
         if is_container:
             self._load_child_count(node_data, self._selection_seq)
 
     def on_node_error(self, message: NodeError) -> None:
         self.query_one("#detail-pane", DetailPane).show_error(message.error_message)
+        self.query_one("#tags-pane", TagsPane).show_placeholder()
         self._current_raw = {}
         self._selection_seq += 1
 
@@ -212,6 +226,12 @@ class AWSBrowserApp(App):
     def action_focus_detail(self) -> None:
         try:
             self.query_one("#detail-pane", DetailPane).focus()
+        except Exception:
+            pass
+
+    def action_focus_tags(self) -> None:
+        try:
+            self.query_one("#tags-pane", TagsPane).focus()
         except Exception:
             pass
 
@@ -355,5 +375,6 @@ class AWSBrowserApp(App):
         tree.reset_tree()
 
         self.query_one("#detail-pane", DetailPane).show_placeholder()
+        self.query_one("#tags-pane", TagsPane).show_placeholder()
         self._current_raw = {}
         self._selection_seq += 1

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import boto3
+from botocore.exceptions import ClientError
 
 from awstui.models import ResourceDetails, TreeNode
 from awstui.plugin import AWSServicePlugin
@@ -81,6 +82,16 @@ class S3Plugin(AWSServicePlugin):
             bucket = node.metadata["bucket_name"]
             location = client.get_bucket_location(Bucket=bucket)
             region = location.get("LocationConstraint") or "us-east-1"
+            try:
+                tagging = client.get_bucket_tagging(Bucket=bucket)
+                tag_set = tagging.get("TagSet", [])
+            except ClientError as e:
+                # NoSuchTagSet is returned when the bucket has no tags.
+                if e.response["Error"].get("Code") == "NoSuchTagSet":
+                    tag_set = []
+                else:
+                    raise
+            raw = {**location, "TagSet": tag_set}
             return ResourceDetails(
                 title=f"S3 Bucket: {bucket}",
                 subtitle=f"arn:aws:s3:::{bucket}",
@@ -88,7 +99,7 @@ class S3Plugin(AWSServicePlugin):
                     "Name": bucket,
                     "Location": region,
                 },
-                raw=location,
+                raw=raw,
             )
 
         if node.node_type == "object":
