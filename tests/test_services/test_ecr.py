@@ -188,6 +188,7 @@ def test_get_details_for_private_repo():
         "createdAt": "2026-01-01T00:00:00Z",
     }
     client.describe_repositories.return_value = {"repositories": [repo]}
+    client.list_tags_for_resource.return_value = {"tags": []}
 
     node = TreeNode(
         id="ecr:private_repo:my-app",
@@ -204,6 +205,71 @@ def test_get_details_for_private_repo():
     assert details.title == "ECR Repository: my-app"
     assert details.subtitle == "arn:aws:ecr:us-east-1:123:repository/my-app"
     assert details.summary["Scan on Push"] == "True"
+
+
+def test_get_details_for_private_repo_includes_tags():
+    session = make_session()
+    client = session.client.return_value
+    repo = {
+        "repositoryName": "my-app",
+        "repositoryArn": "arn:aws:ecr:us-east-1:123:repository/my-app",
+        "repositoryUri": "123.dkr.ecr.us-east-1.amazonaws.com/my-app",
+    }
+    client.describe_repositories.return_value = {"repositories": [repo]}
+    client.list_tags_for_resource.return_value = {
+        "tags": [
+            {"Key": "Environment", "Value": "prod"},
+            {"Key": "Team", "Value": "platform"},
+        ]
+    }
+
+    node = TreeNode(
+        id="ecr:private_repo:my-app",
+        label="my-app",
+        node_type="private_repo",
+        service="ecr",
+        expandable=True,
+        metadata={"repository_name": "my-app"},
+    )
+
+    plugin = ECRPlugin()
+    details = plugin.get_details(session, node)
+
+    client.list_tags_for_resource.assert_called_once_with(
+        resourceArn="arn:aws:ecr:us-east-1:123:repository/my-app"
+    )
+    assert details.raw["Tags"] == [
+        {"Key": "Environment", "Value": "prod"},
+        {"Key": "Team", "Value": "platform"},
+    ]
+
+
+def test_get_details_for_public_repo_includes_tags():
+    session = make_session()
+    client = session.client.return_value
+    repo = {
+        "repositoryName": "public-app",
+        "repositoryArn": "arn:aws:ecr-public::123:repository/public-app",
+        "repositoryUri": "public.ecr.aws/123/public-app",
+    }
+    client.describe_repositories.return_value = {"repositories": [repo]}
+    client.list_tags_for_resource.return_value = {
+        "tags": [{"Key": "Owner", "Value": "platform"}]
+    }
+
+    node = TreeNode(
+        id="ecr:public_repo:public-app",
+        label="public-app",
+        node_type="public_repo",
+        service="ecr",
+        expandable=True,
+        metadata={"repository_name": "public-app"},
+    )
+
+    plugin = ECRPlugin()
+    details = plugin.get_details(session, node)
+
+    assert details.raw["Tags"] == [{"Key": "Owner", "Value": "platform"}]
 
 
 def test_get_details_for_private_image():

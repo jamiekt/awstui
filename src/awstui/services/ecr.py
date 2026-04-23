@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import boto3
+from botocore.exceptions import ClientError
 
 from awstui.models import ResourceDetails, TreeNode
 from awstui.plugin import AWSServicePlugin
@@ -158,9 +159,16 @@ class ECRPlugin(AWSServicePlugin):
                 repositoryNames=[node.metadata["repository_name"]]
             )
             repo = response["repositories"][0]
+            arn = repo.get("repositoryArn", "")
+            if arn:
+                try:
+                    tags_response = client.list_tags_for_resource(resourceArn=arn)
+                    repo["Tags"] = tags_response.get("tags", [])
+                except ClientError:
+                    repo["Tags"] = []
             return ResourceDetails(
                 title=f"ECR Repository: {repo['repositoryName']}",
-                subtitle=repo.get("repositoryArn", ""),
+                subtitle=arn,
                 summary={
                     "Repository Name": repo["repositoryName"],
                     "Registry ID": repo.get("registryId", ""),
@@ -182,9 +190,16 @@ class ECRPlugin(AWSServicePlugin):
                 repositoryNames=[node.metadata["repository_name"]]
             )
             repo = response["repositories"][0]
+            arn = repo.get("repositoryArn", "")
+            if arn:
+                try:
+                    tags_response = client.list_tags_for_resource(resourceArn=arn)
+                    repo["Tags"] = tags_response.get("tags", [])
+                except ClientError:
+                    repo["Tags"] = []
             return ResourceDetails(
                 title=f"ECR Public Repository: {repo['repositoryName']}",
-                subtitle=repo.get("repositoryArn", ""),
+                subtitle=arn,
                 summary={
                     "Repository Name": repo["repositoryName"],
                     "Registry ID": repo.get("registryId", ""),
