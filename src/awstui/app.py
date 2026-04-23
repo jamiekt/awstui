@@ -82,6 +82,7 @@ class AWSBrowserApp(App):
         self._region: str = "us-east-1"
         self._plugin_registry: PluginRegistry | None = None
         self._current_raw: object = {}
+        self._current_subtitle: str = ""
         self._selection_seq: int = 0
         self._current_container_node: TreeNode | None = None
         self._tag_summary_seq: int = -1
@@ -150,6 +151,7 @@ class AWSBrowserApp(App):
             detail.show_placeholder()
             tags.show_placeholder()
             self._current_raw = {}
+            self._current_subtitle = ""
             return
 
         self._selection_seq += 1
@@ -174,6 +176,7 @@ class AWSBrowserApp(App):
             else:
                 detail.show_details(resource_details)
                 self._current_raw = {}
+            self._current_subtitle = ""
             tags.show_placeholder()
             return
 
@@ -193,11 +196,13 @@ class AWSBrowserApp(App):
                 detail.show_error(f"Error loading details: {e}")
             tags.show_placeholder()
             self._current_raw = {}
+            self._current_subtitle = ""
             return
         except Exception as e:
             detail.show_error(f"Error loading details: {e}")
             tags.show_placeholder()
             self._current_raw = {}
+            self._current_subtitle = ""
             return
 
         # For container nodes (no summary of their own), show a fetching
@@ -213,6 +218,7 @@ class AWSBrowserApp(App):
         else:
             detail.show_details(details)
         self._current_raw = details.raw
+        self._current_subtitle = details.subtitle
         tags.show_tags(details.raw)
 
         if is_container:
@@ -222,6 +228,7 @@ class AWSBrowserApp(App):
         self.query_one("#detail-pane", DetailPane).show_error(message.error_message)
         self.query_one("#tags-pane", TagsPane).show_placeholder()
         self._current_raw = {}
+        self._current_subtitle = ""
         self._selection_seq += 1
 
     def action_focus_region(self) -> None:
@@ -279,6 +286,8 @@ class AWSBrowserApp(App):
 
     def action_copy_arn(self) -> None:
         arn = self._find_arn(self._current_raw)
+        if not arn and self._current_subtitle.startswith("arn:"):
+            arn = self._current_subtitle
         if not arn:
             self.notify("No ARN available for this resource", severity="warning")
             return
@@ -503,5 +512,6 @@ class AWSBrowserApp(App):
         self.query_one("#detail-pane", DetailPane).show_placeholder()
         self.query_one("#tags-pane", TagsPane).show_placeholder()
         self._current_raw = {}
+        self._current_subtitle = ""
         self._selection_seq += 1
         self._current_container_node = None
