@@ -109,6 +109,9 @@ class ECRPlugin(AWSServicePlugin):
                             expandable=False,
                             metadata={
                                 "repository_name": node.metadata["repository_name"],
+                                "repository_uri": node.metadata.get(
+                                    "repository_uri", ""
+                                ),
                                 "image_digest": digest,
                                 "image_tags": tags,
                             },
@@ -136,6 +139,9 @@ class ECRPlugin(AWSServicePlugin):
                             expandable=False,
                             metadata={
                                 "repository_name": node.metadata["repository_name"],
+                                "repository_uri": node.metadata.get(
+                                    "repository_uri", ""
+                                ),
                                 "image_digest": digest,
                                 "image_tags": tags,
                             },

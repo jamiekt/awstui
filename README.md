@@ -46,6 +46,7 @@ Uses your existing AWS credentials (environment variables, `~/.aws/credentials`,
 | `2` | Focus the navigation tree |
 | `3` | Focus the detail pane |
 | `a` | Copy the ARN of the selected resource to the clipboard |
+| `u` | Copy the URI of the selected resource (S3 bucket/object, ECR image) |
 | `r` | Copy the Raw JSON of the selected resource to the clipboard |
 
 ## Running Tests

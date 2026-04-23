@@ -38,6 +38,7 @@ class AWSBrowserApp(App):
         Binding("3", "focus_detail", "Detail"),
         Binding("4", "focus_tags", "Tags"),
         Binding("a", "copy_arn", "Copy ARN"),
+        Binding("u", "copy_uri", "Copy URI"),
         Binding("r", "copy_raw", "Copy Raw"),
         Binding("[", "shrink_pane", "Shrink"),
         Binding("]", "grow_pane", "Grow"),
@@ -83,6 +84,7 @@ class AWSBrowserApp(App):
         self._plugin_registry: PluginRegistry | None = None
         self._current_raw: object = {}
         self._current_subtitle: str = ""
+        self._current_node: TreeNode | None = None
         self._selection_seq: int = 0
         self._current_container_node: TreeNode | None = None
         self._tag_summary_seq: int = -1
@@ -152,10 +154,12 @@ class AWSBrowserApp(App):
             tags.show_placeholder()
             self._current_raw = {}
             self._current_subtitle = ""
+            self._current_node = None
             return
 
         self._selection_seq += 1
         self._current_container_node = None
+        self._current_node = node_data
 
         if node_data.node_type == "service":
             resource_details = ResourceDetails(
@@ -229,6 +233,7 @@ class AWSBrowserApp(App):
         self.query_one("#tags-pane", TagsPane).show_placeholder()
         self._current_raw = {}
         self._current_subtitle = ""
+        self._current_node = None
         self._selection_seq += 1
 
     def action_focus_region(self) -> None:
@@ -292,6 +297,36 @@ class AWSBrowserApp(App):
             self.notify("No ARN available for this resource", severity="warning")
             return
         self._copy_text(arn, f"Copied ARN: {arn}")
+
+    def action_copy_uri(self) -> None:
+        uri = self._uri_for(self._current_node)
+        if not uri:
+            self.notify("No URI available for this resource", severity="warning")
+            return
+        self._copy_text(uri, f"Copied URI: {uri}")
+
+    @staticmethod
+    def _uri_for(node: TreeNode | None) -> str:
+        if node is None:
+            return ""
+        meta = node.metadata
+        if node.node_type == "bucket":
+            bucket = meta.get("bucket_name", "")
+            return f"s3://{bucket}" if bucket else ""
+        if node.node_type == "object":
+            bucket = meta.get("bucket_name", "")
+            key = meta.get("key", "")
+            return f"s3://{bucket}/{key}" if bucket and key else ""
+        if node.node_type in ("private_image", "public_image"):
+            repo_uri = meta.get("repository_uri", "")
+            if not repo_uri:
+                return ""
+            tags = meta.get("image_tags") or []
+            if tags:
+                return f"{repo_uri}:{tags[0]}"
+            digest = meta.get("image_digest", "")
+            return f"{repo_uri}@{digest}" if digest else repo_uri
+        return ""
 
     def action_copy_raw(self) -> None:
         if not self._current_raw:
@@ -513,5 +548,6 @@ class AWSBrowserApp(App):
         self.query_one("#tags-pane", TagsPane).show_placeholder()
         self._current_raw = {}
         self._current_subtitle = ""
+        self._current_node = None
         self._selection_seq += 1
         self._current_container_node = None

@@ -3,6 +3,7 @@ from unittest.mock import patch, MagicMock
 from botocore.exceptions import NoCredentialsError
 
 from awstui.app import AWSBrowserApp
+from awstui.models import TreeNode
 
 
 @pytest.mark.asyncio
@@ -93,3 +94,79 @@ def test_pluralize_sibilants():
 
 def test_pluralize_empty():
     assert AWSBrowserApp._pluralize("") == "items"
+
+
+def _node(node_type: str, **metadata) -> TreeNode:
+    return TreeNode(
+        id="x",
+        label="x",
+        node_type=node_type,
+        service="x",
+        expandable=False,
+        metadata=metadata,
+    )
+
+
+def test_uri_for_none_returns_empty():
+    assert AWSBrowserApp._uri_for(None) == ""
+
+
+def test_uri_for_s3_bucket():
+    assert (
+        AWSBrowserApp._uri_for(_node("bucket", bucket_name="my-bucket"))
+        == "s3://my-bucket"
+    )
+
+
+def test_uri_for_s3_object():
+    node = _node("object", bucket_name="my-bucket", key="path/to/file.txt")
+    assert AWSBrowserApp._uri_for(node) == "s3://my-bucket/path/to/file.txt"
+
+
+def test_uri_for_ecr_image_with_tag():
+    node = _node(
+        "private_image",
+        repository_uri="123.dkr.ecr.us-east-1.amazonaws.com/my-app",
+        image_digest="sha256:abc",
+        image_tags=["latest", "v1"],
+    )
+    assert (
+        AWSBrowserApp._uri_for(node)
+        == "123.dkr.ecr.us-east-1.amazonaws.com/my-app:latest"
+    )
+
+
+def test_uri_for_ecr_image_without_tag_uses_digest():
+    node = _node(
+        "private_image",
+        repository_uri="123.dkr.ecr.us-east-1.amazonaws.com/my-app",
+        image_digest="sha256:abc",
+        image_tags=[],
+    )
+    assert (
+        AWSBrowserApp._uri_for(node)
+        == "123.dkr.ecr.us-east-1.amazonaws.com/my-app@sha256:abc"
+    )
+
+
+def test_uri_for_public_ecr_image_with_tag():
+    node = _node(
+        "public_image",
+        repository_uri="public.ecr.aws/123/public-app",
+        image_digest="sha256:xyz",
+        image_tags=["v2"],
+    )
+    assert AWSBrowserApp._uri_for(node) == "public.ecr.aws/123/public-app:v2"
+
+
+def test_uri_for_unsupported_node_type_returns_empty():
+    assert AWSBrowserApp._uri_for(_node("function", function_name="f")) == ""
+
+
+def test_uri_for_s3_object_missing_metadata_returns_empty():
+    assert AWSBrowserApp._uri_for(_node("object", bucket_name="b")) == ""
+
+
+def test_uri_for_ecr_image_missing_repo_uri_returns_empty():
+    node = _node("private_image", image_digest="sha256:abc", image_tags=["v1"])
+    assert AWSBrowserApp._uri_for(node) == ""
