@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock
 
+from awstui.models import TreeNode
 from awstui.services.sns import SNSPlugin
 
 
@@ -13,7 +14,18 @@ def test_sns_plugin_properties():
     assert plugin.service_name == "sns"
 
 
-def test_get_root_nodes_returns_topics():
+def test_get_root_nodes_returns_categories():
+    session = make_session()
+    plugin = SNSPlugin()
+    nodes = plugin.get_root_nodes(session)
+
+    labels = [n.label for n in nodes]
+    assert "Topics" in labels
+    assert "Subscriptions" in labels
+    assert all(n.node_type == "category" for n in nodes)
+
+
+def test_get_children_of_topics_category():
     session = make_session()
     client = session.client.return_value
     client.get_paginator.return_value.paginate.return_value = [
@@ -25,13 +37,61 @@ def test_get_root_nodes_returns_topics():
         }
     ]
 
-    plugin = SNSPlugin()
-    nodes = plugin.get_root_nodes(session)
+    node = TreeNode(
+        id="sns:category:topics",
+        label="Topics",
+        node_type="category",
+        service="sns",
+        expandable=True,
+        metadata={"category": "topics"},
+    )
 
-    assert len(nodes) == 2
-    assert nodes[0].label == "my-topic"
-    assert nodes[0].node_type == "topic"
-    assert nodes[0].expandable is True
+    plugin = SNSPlugin()
+    children = plugin.get_children(session, node)
+
+    assert len(children) == 2
+    assert children[0].label == "my-topic"
+    assert children[0].node_type == "topic"
+    assert children[0].expandable is True
+
+
+def test_get_children_of_subscriptions_category():
+    session = make_session()
+    client = session.client.return_value
+    client.get_paginator.return_value.paginate.return_value = [
+        {
+            "Subscriptions": [
+                {
+                    "SubscriptionArn": "arn:aws:sns:us-east-1:123:my-topic:sub1",
+                    "Protocol": "email",
+                    "Endpoint": "user@example.com",
+                },
+                {
+                    "SubscriptionArn": "arn:aws:sns:us-east-1:123:other-topic:sub2",
+                    "Protocol": "sqs",
+                    "Endpoint": "arn:aws:sqs:us-east-1:123:queue",
+                },
+            ]
+        }
+    ]
+
+    node = TreeNode(
+        id="sns:category:subscriptions",
+        label="Subscriptions",
+        node_type="category",
+        service="sns",
+        expandable=True,
+        metadata={"category": "subscriptions"},
+    )
+
+    plugin = SNSPlugin()
+    children = plugin.get_children(session, node)
+
+    assert len(children) == 2
+    assert children[0].label == "email: user@example.com"
+    assert children[0].node_type == "subscription"
+    assert children[0].expandable is False
+    assert children[1].label == "sqs: arn:aws:sqs:us-east-1:123:queue"
 
 
 def test_get_children_of_topic_returns_subscriptions():
@@ -46,8 +106,6 @@ def test_get_children_of_topic_returns_subscriptions():
             }
         ]
     }
-
-    from awstui.models import TreeNode
 
     node = TreeNode(
         id="sns:topic:my-topic",
@@ -80,8 +138,6 @@ def test_get_details_for_topic():
         }
     }
 
-    from awstui.models import TreeNode
-
     node = TreeNode(
         id="sns:topic:my-topic",
         label="my-topic",
@@ -110,8 +166,6 @@ def test_get_details_for_subscription():
             "Owner": "123456789012",
         }
     }
-
-    from awstui.models import TreeNode
 
     node = TreeNode(
         id="sns:sub:sub1",

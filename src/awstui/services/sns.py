@@ -16,44 +16,81 @@ class SNSPlugin(AWSServicePlugin):
         return "sns"
 
     def get_root_nodes(self, session: boto3.Session) -> list[TreeNode]:
-        client = session.client("sns")
-        paginator = client.get_paginator("list_topics")
-        nodes: list[TreeNode] = []
-        for page in paginator.paginate():
-            for topic in page.get("Topics", []):
-                arn = topic["TopicArn"]
-                name = arn.rsplit(":", 1)[-1]
-                nodes.append(
-                    TreeNode(
-                        id=f"sns:topic:{name}",
-                        label=name,
-                        node_type="topic",
-                        service="sns",
-                        expandable=True,
-                        metadata={"topic_arn": arn},
-                    )
-                )
-        return nodes
-
-    def get_children(self, session: boto3.Session, node: TreeNode) -> list[TreeNode]:
-        if node.node_type != "topic":
-            return []
-
-        client = session.client("sns")
-        response = client.list_subscriptions_by_topic(
-            TopicArn=node.metadata["topic_arn"]
-        )
         return [
             TreeNode(
-                id=f"sns:sub:{sub['SubscriptionArn'].rsplit(':', 1)[-1]}",
-                label=f"{sub['Protocol']}: {sub['Endpoint']}",
-                node_type="subscription",
+                id="sns:category:topics",
+                label="Topics",
+                node_type="category",
                 service="sns",
-                expandable=False,
-                metadata={"subscription_arn": sub["SubscriptionArn"]},
-            )
-            for sub in response.get("Subscriptions", [])
+                expandable=True,
+                metadata={"category": "topics"},
+            ),
+            TreeNode(
+                id="sns:category:subscriptions",
+                label="Subscriptions",
+                node_type="category",
+                service="sns",
+                expandable=True,
+                metadata={"category": "subscriptions"},
+            ),
         ]
+
+    def get_children(self, session: boto3.Session, node: TreeNode) -> list[TreeNode]:
+        client = session.client("sns")
+
+        if node.metadata.get("category") == "topics":
+            paginator = client.get_paginator("list_topics")
+            nodes: list[TreeNode] = []
+            for page in paginator.paginate():
+                for topic in page.get("Topics", []):
+                    arn = topic["TopicArn"]
+                    name = arn.rsplit(":", 1)[-1]
+                    nodes.append(
+                        TreeNode(
+                            id=f"sns:topic:{name}",
+                            label=name,
+                            node_type="topic",
+                            service="sns",
+                            expandable=True,
+                            metadata={"topic_arn": arn},
+                        )
+                    )
+            return nodes
+
+        if node.metadata.get("category") == "subscriptions":
+            paginator = client.get_paginator("list_subscriptions")
+            nodes = []
+            for page in paginator.paginate():
+                for sub in page.get("Subscriptions", []):
+                    nodes.append(
+                        TreeNode(
+                            id=f"sns:sub:{sub['SubscriptionArn'].rsplit(':', 1)[-1]}",
+                            label=f"{sub['Protocol']}: {sub['Endpoint']}",
+                            node_type="subscription",
+                            service="sns",
+                            expandable=False,
+                            metadata={"subscription_arn": sub["SubscriptionArn"]},
+                        )
+                    )
+            return nodes
+
+        if node.node_type == "topic":
+            response = client.list_subscriptions_by_topic(
+                TopicArn=node.metadata["topic_arn"]
+            )
+            return [
+                TreeNode(
+                    id=f"sns:sub:{sub['SubscriptionArn'].rsplit(':', 1)[-1]}",
+                    label=f"{sub['Protocol']}: {sub['Endpoint']}",
+                    node_type="subscription",
+                    service="sns",
+                    expandable=False,
+                    metadata={"subscription_arn": sub["SubscriptionArn"]},
+                )
+                for sub in response.get("Subscriptions", [])
+            ]
+
+        return []
 
     def get_details(self, session: boto3.Session, node: TreeNode) -> ResourceDetails:
         client = session.client("sns")
@@ -90,6 +127,11 @@ class SNSPlugin(AWSServicePlugin):
                     "Owner": attrs.get("Owner", ""),
                 },
                 raw=attrs,
+            )
+
+        if node.node_type == "category":
+            return ResourceDetails(
+                title=node.label, subtitle="Expand to see resources", summary={}, raw={}
             )
 
         return ResourceDetails(title=node.label, subtitle="", summary={}, raw={})
