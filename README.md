@@ -9,8 +9,9 @@ A read-only terminal UI for browsing AWS resources, built with [Textual](https:/
 - View tag summary for collections of resources
 - View resource details in a Summary or Raw JSON tab
 - Switch regions on the fly
-- Pluggable service architecture — easy to add new AWS services
-- Graceful handling of permission errors
+- Filter hotkey
+- Copy URI hotkey (for S3 buckets and objects, ECR images)
+- Copy ARN hotkey
 
 ## Screenshots
 
