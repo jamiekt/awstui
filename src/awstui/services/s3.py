@@ -159,39 +159,39 @@ class S3Plugin(AWSServicePlugin):
         bucket = node.metadata["bucket_name"]
         prefix = node.metadata.get("prefix", "")
 
-        response = client.list_objects_v2(Bucket=bucket, Prefix=prefix, Delimiter="/")
-
+        paginator = client.get_paginator("list_objects_v2")
         children: list[TreeNode] = []
 
-        for cp in response.get("CommonPrefixes", []):
-            p = cp["Prefix"]
-            display = p[len(prefix) :]
-            children.append(
-                TreeNode(
-                    id=f"s3:prefix:{bucket}:{p}",
-                    label=display,
-                    node_type="prefix",
-                    service="s3",
-                    expandable=True,
-                    metadata={"bucket_name": bucket, "prefix": p},
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix, Delimiter="/"):
+            for cp in page.get("CommonPrefixes", []):
+                p = cp["Prefix"]
+                display = p[len(prefix) :]
+                children.append(
+                    TreeNode(
+                        id=f"s3:prefix:{bucket}:{p}",
+                        label=display,
+                        node_type="prefix",
+                        service="s3",
+                        expandable=True,
+                        metadata={"bucket_name": bucket, "prefix": p},
+                    )
                 )
-            )
 
-        for obj in response.get("Contents", []):
-            key = obj["Key"]
-            if key == prefix:
-                continue
-            display = key[len(prefix) :]
-            children.append(
-                TreeNode(
-                    id=f"s3:object:{bucket}:{key}",
-                    label=display,
-                    node_type="object",
-                    service="s3",
-                    expandable=False,
-                    metadata={"bucket_name": bucket, "key": key},
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                if key == prefix:
+                    continue
+                display = key[len(prefix) :]
+                children.append(
+                    TreeNode(
+                        id=f"s3:object:{bucket}:{key}",
+                        label=display,
+                        node_type="object",
+                        service="s3",
+                        expandable=False,
+                        metadata={"bucket_name": bucket, "key": key},
+                    )
                 )
-            )
 
         return children
 

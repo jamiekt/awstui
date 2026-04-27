@@ -64,10 +64,12 @@ def test_get_children_of_general_purpose_buckets_category():
 def test_get_children_of_bucket_lists_prefixes_and_objects():
     session = make_session()
     client = session.client.return_value
-    client.list_objects_v2.return_value = {
-        "CommonPrefixes": [{"Prefix": "logs/"}],
-        "Contents": [{"Key": "readme.txt", "Size": 1024}],
-    }
+    client.get_paginator.return_value.paginate.return_value = [
+        {
+            "CommonPrefixes": [{"Prefix": "logs/"}],
+            "Contents": [{"Key": "readme.txt", "Size": 1024}],
+        }
+    ]
 
     from awstui.models import TreeNode
 
@@ -97,10 +99,12 @@ def test_get_children_of_bucket_lists_prefixes_and_objects():
 def test_get_children_of_prefix():
     session = make_session()
     client = session.client.return_value
-    client.list_objects_v2.return_value = {
-        "CommonPrefixes": [],
-        "Contents": [{"Key": "logs/app.log", "Size": 2048}],
-    }
+    client.get_paginator.return_value.paginate.return_value = [
+        {
+            "CommonPrefixes": [],
+            "Contents": [{"Key": "logs/app.log", "Size": 2048}],
+        }
+    ]
 
     from awstui.models import TreeNode
 
@@ -119,6 +123,38 @@ def test_get_children_of_prefix():
     assert len(children) == 1
     assert children[0].label == "app.log"
     assert children[0].node_type == "object"
+
+
+def test_get_children_of_prefix_pagination():
+    """Children from multiple pages should all be returned."""
+    session = make_session()
+    client = session.client.return_value
+    client.get_paginator.return_value.paginate.return_value = [
+        {
+            "CommonPrefixes": [],
+            "Contents": [{"Key": f"logs/file-{i:04d}.log"} for i in range(1000)],
+        },
+        {
+            "CommonPrefixes": [],
+            "Contents": [{"Key": f"logs/file-{i:04d}.log"} for i in range(1000, 1500)],
+        },
+    ]
+
+    from awstui.models import TreeNode
+
+    prefix_node = TreeNode(
+        id="s3:prefix:my-bucket:logs/",
+        label="logs/",
+        node_type="prefix",
+        service="s3",
+        expandable=True,
+        metadata={"bucket_name": "my-bucket", "prefix": "logs/"},
+    )
+
+    plugin = S3Plugin()
+    children = plugin.get_children(session, prefix_node)
+
+    assert len(children) == 1500
 
 
 def test_get_details_for_bucket():
