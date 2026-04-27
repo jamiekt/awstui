@@ -1,6 +1,6 @@
 [project]
 name = "awstui"
-version = "0.9"
+version = "0.10"
 description = "A read-only TUI for browsing AWS resources"
 readme = "README.md"
 requires-python = ">=3.10"

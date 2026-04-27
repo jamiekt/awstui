@@ -63,7 +63,8 @@ class DetailPane(Static, can_focus=True):
     .tag-summary-key {
         text-style: bold;
         color: $accent;
-        margin-top: 1;
+        height: 1;
+        margin-right: 1;
     }
     .tag-summary-bar {
         color: $text;
@@ -83,6 +84,10 @@ class DetailPane(Static, can_focus=True):
         width: auto;
         margin-left: 1;
         color: $text-muted;
+    }
+    .tag-summary-bar-area {
+        width: 1fr;
+        height: 1;
     }
     """
 
@@ -204,6 +209,9 @@ class DetailPane(Static, can_focus=True):
         tag_pane.mount(scroll)
 
         max_total = max(sum(v.values()) for v in aggregated.values())
+        # Reserve one column per character of the longest key so every bar
+        # starts at the same column.
+        key_width = max(len(k) for k in aggregated)
         for key in sorted(aggregated):
             counts = aggregated[key]
             total = sum(counts.values())
@@ -219,19 +227,23 @@ class DetailPane(Static, can_focus=True):
                 segments.append(seg)
 
             # The bar itself is a container whose width is scaled by the
-            # key's total count relative to the largest key. The total label
-            # sits outside the bar so its width isn't affected by the
-            # scaling.
+            # key's total count relative to the largest key. It sits inside
+            # a fixed-width "bar area" so the total label lands in the same
+            # column regardless of each key's magnitude.
             bar = Horizontal(*segments, classes="tag-summary-bar-stack")
             bar.styles.width = f"{total / max_total * 100:.2f}%"
+            bar_area = Horizontal(bar, classes="tag-summary-bar-area")
+
+            key_label = Static(key, classes="tag-summary-key")
+            key_label.styles.width = key_width
 
             row = Horizontal(
-                bar,
+                key_label,
+                bar_area,
                 Static(str(total), classes="tag-summary-total"),
                 classes="tag-summary-row",
             )
 
-            scroll.mount(Static(key, classes="tag-summary-key"))
             scroll.mount(row)
 
     def show_error(self, message: str) -> None:
