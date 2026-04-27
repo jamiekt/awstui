@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
 
 from rich.syntax import Syntax
@@ -8,7 +10,44 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import ProgressBar, Static, TabbedContent, TabPane
 
-from awstui.models import ResourceDetails
+from awstui.models import ContentPreview, ResourceDetails
+
+# Rainbow-csv palette: cycle through these column-by-column. Chosen to
+# read well on both dark and light terminal backgrounds.
+_RAINBOW_CSV_COLORS = (
+    "#e06c75",  # red
+    "#e5c07b",  # yellow
+    "#98c379",  # green
+    "#56b6c2",  # cyan
+    "#61afef",  # blue
+    "#c678dd",  # purple
+)
+
+
+def _render_rainbow_csv(body: str, no_wrap: bool = False) -> Text:
+    """Return a Rich Text where each column is coloured from a cycling palette.
+
+    Uses the csv module so quoted fields and embedded delimiters are handled
+    correctly. Delimiter is auto-detected between comma and tab based on the
+    first line; defaults to comma. When `no_wrap` is True the returned Text
+    reports its full width so a scroll container sees overflow instead of
+    the renderer soft-wrapping at the viewport.
+    """
+    first_newline = body.find("\n")
+    header = body if first_newline == -1 else body[:first_newline]
+    delimiter = "\t" if header.count("\t") > header.count(",") else ","
+
+    output = Text(no_wrap=no_wrap, overflow="ignore" if no_wrap else "fold")
+    reader = csv.reader(io.StringIO(body), delimiter=delimiter)
+    for row_index, row in enumerate(reader):
+        if row_index > 0:
+            output.append("\n")
+        for col_index, field in enumerate(row):
+            if col_index > 0:
+                output.append(delimiter)
+            color = _RAINBOW_CSV_COLORS[col_index % len(_RAINBOW_CSV_COLORS)]
+            output.append(field, style=color)
+    return output
 
 
 def _tag_segment_colors(count: int) -> list[str]:
@@ -91,6 +130,11 @@ class DetailPane(Static, can_focus=True):
     }
     """
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._content_preview: ContentPreview | None = None
+        self._content_wrap: bool = True
+
     def compose(self) -> ComposeResult:
         yield Static("Select a resource to view details")
 
@@ -99,16 +143,21 @@ class DetailPane(Static, can_focus=True):
         details: ResourceDetails,
         empty_summary_status: str = "No summary available",
         include_tag_summary: bool = False,
+        include_content: bool = False,
     ) -> None:
-        """Display resource details with Summary, Raw JSON, and optionally Tag Summary tabs.
+        """Display resource details with Summary, Raw JSON, and optional tabs.
 
         `empty_summary_status` is the text shown in the Summary tab when
         `details.summary` is empty (e.g. "Retrieving count ..." while a
         child-count fetch is in flight).
 
-        `include_tag_summary` adds a third "Tag Summary" tab that stays empty
-        until the caller populates it via `set_tag_summary`.
+        `include_tag_summary` adds a "Tag Summary" tab populated via
+        `set_tag_summary`.
+
+        `include_content` adds a "Content" tab populated via
+        `set_content_preview`.
         """
+        self._content_preview = None
         self.remove_children()
 
         self.mount(Static(details.title, classes="detail-title"))
@@ -123,6 +172,16 @@ class DetailPane(Static, can_focus=True):
 
         tabbed.add_pane(summary_pane)
         tabbed.add_pane(raw_pane)
+
+        if include_content:
+            content_pane = TabPane("Content", id="tab-content")
+            tabbed.add_pane(content_pane)
+            content_pane.mount(
+                Static(
+                    "Select this tab to load content",
+                    classes="content-status",
+                )
+            )
 
         if include_tag_summary:
             tag_pane = TabPane("Tag Summary", id="tab-tag-summary")
@@ -245,6 +304,78 @@ class DetailPane(Static, can_focus=True):
             )
 
             scroll.mount(row)
+
+    def set_content_status(self, message: str) -> None:
+        """Replace the Content tab body with a status line (e.g. 'Loading ...')."""
+        try:
+            content_pane = self.query_one("#tab-content", TabPane)
+        except Exception:
+            return
+        for child in list(content_pane.children):
+            child.remove()
+        content_pane.mount(Static(message, classes="content-status"))
+
+    def set_content_preview(self, preview: ContentPreview) -> None:
+        """Render the Content tab from a ContentPreview.
+
+        CSV content defaults to no-wrap (rainbow columns line up better);
+        everything else defaults to wrap. `toggle_content_wrap` flips it.
+        """
+        self._content_preview = preview
+        # Default: CSV is most useful without wrap; other text wraps.
+        self._content_wrap = preview.language != "csv"
+        self._render_content()
+
+    def toggle_content_wrap(self) -> bool:
+        """Flip wrap on/off for the Content tab and re-render.
+
+        Returns the new wrap state.
+        """
+        self._content_wrap = not self._content_wrap
+        self._render_content()
+        return self._content_wrap
+
+    def _render_content(self) -> None:
+        preview = self._content_preview
+        if preview is None:
+            return
+        try:
+            content_pane = self.query_one("#tab-content", TabPane)
+        except Exception:
+            return
+        for child in list(content_pane.children):
+            child.remove()
+
+        if preview.kind != "text":
+            content_pane.mount(Static(preview.body, classes="content-status"))
+            return
+
+        body = preview.body
+        if preview.truncated and preview.size is not None:
+            body = (
+                f"-- truncated; showing first {len(preview.body)} of "
+                f"{preview.size} bytes --\n" + body
+            )
+
+        wrap = self._content_wrap
+        if preview.language == "csv":
+            inner = Static(_render_rainbow_csv(body, no_wrap=not wrap))
+        elif preview.language:
+            inner = Static(
+                Syntax(
+                    body,
+                    preview.language,
+                    theme="monokai",
+                    line_numbers=False,
+                    word_wrap=wrap,
+                )
+            )
+        elif not wrap:
+            inner = Static(Text(body, no_wrap=True, overflow="ignore"))
+        else:
+            inner = Static(body)
+
+        content_pane.mount(VerticalScroll(inner))
 
     def show_error(self, message: str) -> None:
         """Display an error message."""

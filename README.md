@@ -51,6 +51,7 @@ Uses your existing AWS credentials (environment variables, `~/.aws/credentials`,
 | `u` | Copy the URI of the selected resource (S3 bucket/object, ECR image) |
 | `r` | Copy the Raw JSON of the selected resource to the clipboard |
 | `f` | Filter children of the highlighted node by substring (empty input clears) |
+| `w` | Toggle word wrap in the Content tab (CSVs default to no-wrap, others to wrap) |
 
 ## Running Tests
 

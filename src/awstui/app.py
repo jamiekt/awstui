@@ -12,7 +12,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Static, TabbedContent, TabPane
 from textual import work
 
-from awstui.models import ResourceDetails, TreeNode
+from awstui.models import ContentPreview, ResourceDetails, TreeNode
 from awstui.plugin import PluginRegistry
 from awstui.services import discover_plugins
 from awstui.widgets.detail_pane import DetailPane
@@ -42,6 +42,7 @@ class AWSBrowserApp(App):
         Binding("u", "copy_uri", "Copy URI"),
         Binding("r", "copy_raw", "Copy Raw"),
         Binding("f", "filter_children", "Filter"),
+        Binding("w", "toggle_content_wrap", "Wrap"),
         Binding("[", "shrink_pane", "Shrink"),
         Binding("]", "grow_pane", "Grow"),
     ]
@@ -97,6 +98,7 @@ class AWSBrowserApp(App):
         self._selection_seq: int = 0
         self._current_container_node: TreeNode | None = None
         self._tag_summary_seq: int = -1
+        self._content_seq: int = -1
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -223,15 +225,17 @@ class AWSBrowserApp(App):
         # For container nodes (no summary of their own), show a fetching
         # placeholder *at mount time* and kick off a background count.
         is_container = not details.summary and node_data.expandable
+        include_content = plugin.has_content(node_data)
         if is_container:
             detail.show_details(
                 details,
                 empty_summary_status="Retrieving count ...",
                 include_tag_summary=True,
+                include_content=include_content,
             )
             self._current_container_node = node_data
         else:
-            detail.show_details(details)
+            detail.show_details(details, include_content=include_content)
         self._current_raw = details.raw
         self._current_subtitle = details.subtitle
         tags.show_tags(details.raw)
@@ -377,6 +381,17 @@ class AWSBrowserApp(App):
         raw = json.dumps(self._current_raw, indent=2, default=str)
         self._copy_text(raw, "Copied raw JSON")
 
+    def action_toggle_content_wrap(self) -> None:
+        try:
+            detail = self.query_one("#detail-pane", DetailPane)
+        except Exception:
+            return
+        if detail._content_preview is None:
+            self.notify("No content loaded to wrap", severity="warning")
+            return
+        wrapped = detail.toggle_content_wrap()
+        self.notify(f"Content wrap: {'on' if wrapped else 'off'}")
+
     def _copy_text(self, text: str, success_message: str) -> None:
         try:
             pyperclip.copy(text)
@@ -519,8 +534,12 @@ class AWSBrowserApp(App):
     def on_tabbed_content_tab_activated(
         self, event: TabbedContent.TabActivated
     ) -> None:
-        if event.pane.id != "tab-tag-summary":
-            return
+        if event.pane.id == "tab-tag-summary":
+            self._handle_tag_summary_tab_activated()
+        elif event.pane.id == "tab-content":
+            self._handle_content_tab_activated()
+
+    def _handle_tag_summary_tab_activated(self) -> None:
         if self._current_container_node is None:
             return
         try:
@@ -540,6 +559,63 @@ class AWSBrowserApp(App):
                 Static("Retrieving tag summary ...", classes="tag-summary-status")
             )
         self._load_tag_summary(self._current_container_node, self._selection_seq)
+
+    def _handle_content_tab_activated(self) -> None:
+        if self._current_node is None:
+            return
+        if self._content_seq == self._selection_seq:
+            return
+        self._content_seq = self._selection_seq
+        try:
+            self.query_one("#detail-pane", DetailPane).set_content_status(
+                "Loading content ..."
+            )
+        except Exception:
+            pass
+        self._load_content(self._current_node, self._selection_seq)
+
+    @work(thread=True, exclusive=True, group="content")
+    def _load_content(self, node: TreeNode, seq: int) -> None:
+        plugin = (
+            self._plugin_registry.get(node.service) if self._plugin_registry else None
+        )
+        if plugin is None or self._session is None:
+            return
+        try:
+            preview = plugin.get_content(self._session, node)
+        except ClientError as e:
+            error_code = e.response["Error"].get("Code", "")
+            if error_code in (
+                "AccessDenied",
+                "AccessDeniedException",
+                "UnauthorizedAccess",
+            ):
+                msg = "Access Denied: insufficient permissions to load content"
+            else:
+                msg = f"Error loading content: {e}"
+            self.call_from_thread(self._apply_content_error, seq, msg)
+            return
+        except Exception as e:
+            self.call_from_thread(self._apply_content_error, seq, f"Error: {e}")
+            return
+        self.call_from_thread(self._apply_content, seq, preview)
+
+    def _apply_content(self, seq: int, preview: ContentPreview | None) -> None:
+        if seq != self._selection_seq:
+            return
+        detail = self.query_one("#detail-pane", DetailPane)
+        if preview is None:
+            detail.set_content_status("No content available for this resource")
+            return
+        detail.set_content_preview(preview)
+
+    def _apply_content_error(self, seq: int, message: str) -> None:
+        if seq != self._selection_seq:
+            return
+        try:
+            self.query_one("#detail-pane", DetailPane).set_content_status(message)
+        except Exception:
+            pass
 
     def _find_arn(self, obj: object) -> str:
         """Recursively find an ARN in a raw API response.

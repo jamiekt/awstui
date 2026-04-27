@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 
 import boto3
 
-from awstui.models import ResourceDetails, TreeNode
+from awstui.models import ContentPreview, ResourceDetails, TreeNode
 
 
 class AWSServicePlugin(ABC):
@@ -42,6 +42,24 @@ class AWSServicePlugin(ABC):
     @abstractmethod
     def get_details(self, session: boto3.Session, node: TreeNode) -> ResourceDetails:
         """Return details for the given node."""
+
+    def has_content(self, node: TreeNode) -> bool:
+        """Fast check: does this node support a content preview?
+
+        The app uses this to decide whether to include the Content tab.
+        Must be cheap — no AWS calls. The actual preview is fetched lazily
+        via `get_content` when the user activates the tab.
+        """
+        return False
+
+    def get_content(
+        self, session: boto3.Session, node: TreeNode
+    ) -> ContentPreview | None:
+        """Return a content preview for the given node, or None.
+
+        Only called when `has_content(node)` returned True. May hit AWS.
+        """
+        return None
 
 
 class PluginRegistry:

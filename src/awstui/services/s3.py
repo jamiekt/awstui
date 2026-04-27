@@ -3,8 +3,144 @@ from __future__ import annotations
 import boto3
 from botocore.exceptions import ClientError
 
-from awstui.models import ResourceDetails, TreeNode
+from awstui.models import ContentPreview, ResourceDetails, TreeNode
 from awstui.plugin import AWSServicePlugin
+
+# Maximum number of bytes of object content to fetch for preview.
+_CONTENT_PREVIEW_MAX_BYTES = 1_000_000
+
+# Content-types we treat as "generic" — extension sniffing takes over.
+_GENERIC_CONTENT_TYPES = {
+    "",
+    "application/octet-stream",
+    "binary/octet-stream",
+}
+
+# Content-types (prefix match) we consider textual and safe to render.
+_TEXTUAL_PREFIXES = ("text/",)
+_TEXTUAL_EXACT = {
+    "application/json",
+    "application/xml",
+    "application/x-yaml",
+    "application/yaml",
+    "application/javascript",
+    "application/x-javascript",
+    "application/typescript",
+    "application/x-www-form-urlencoded",
+    "application/x-sh",
+}
+
+# File extensions we treat as text when content-type is missing or generic.
+_TEXTUAL_EXTENSIONS = {
+    ".txt",
+    ".log",
+    ".md",
+    ".csv",
+    ".tsv",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".xml",
+    ".html",
+    ".htm",
+    ".css",
+    ".js",
+    ".ts",
+    ".py",
+    ".rb",
+    ".go",
+    ".rs",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".ini",
+    ".cfg",
+    ".toml",
+    ".conf",
+    ".sql",
+    ".tf",
+}
+
+# Map content-type / extension to a Rich syntax lexer name.
+_LANGUAGE_MAP = {
+    "application/json": "json",
+    "application/xml": "xml",
+    "application/x-yaml": "yaml",
+    "application/yaml": "yaml",
+    "application/javascript": "javascript",
+    "application/x-javascript": "javascript",
+    "application/typescript": "typescript",
+    "application/x-sh": "bash",
+    "text/html": "html",
+    "text/css": "css",
+    "text/xml": "xml",
+    "text/csv": "csv",
+    "text/tab-separated-values": "csv",
+    "text/markdown": "markdown",
+}
+_EXTENSION_LANGUAGE_MAP = {
+    ".csv": "csv",
+    ".tsv": "csv",
+    ".json": "json",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".xml": "xml",
+    ".html": "html",
+    ".htm": "html",
+    ".css": "css",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".py": "python",
+    ".rb": "ruby",
+    ".go": "go",
+    ".rs": "rust",
+    ".sh": "bash",
+    ".bash": "bash",
+    ".zsh": "bash",
+    ".md": "markdown",
+    ".toml": "toml",
+    ".ini": "ini",
+    ".sql": "sql",
+    ".tf": "hcl",
+}
+
+
+def _is_textual(content_type: str, key: str) -> bool:
+    ct = (content_type or "").split(";", 1)[0].strip().lower()
+    if any(ct.startswith(p) for p in _TEXTUAL_PREFIXES):
+        return True
+    if ct in _TEXTUAL_EXACT:
+        return True
+    # Fall back to extension sniffing for objects with no or generic type.
+    ext = _extension(key)
+    if ct in _GENERIC_CONTENT_TYPES and ext in _TEXTUAL_EXTENSIONS:
+        return True
+    return False
+
+
+def _language_for(content_type: str, key: str) -> str | None:
+    ct = (content_type or "").split(";", 1)[0].strip().lower()
+    if ct in _LANGUAGE_MAP:
+        return _LANGUAGE_MAP[ct]
+    ext = _extension(key)
+    return _EXTENSION_LANGUAGE_MAP.get(ext)
+
+
+def _extension(key: str) -> str:
+    dot = key.rfind(".")
+    slash = key.rfind("/")
+    if dot == -1 or dot < slash:
+        return ""
+    return key[dot:].lower()
+
+
+def _human_bytes(n: int) -> str:
+    size: float = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
+            return f"{n} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size} B"
 
 
 class S3Plugin(AWSServicePlugin):
@@ -327,6 +463,55 @@ class S3Plugin(AWSServicePlugin):
             )
 
         return ResourceDetails(title=node.label, subtitle="", summary={}, raw={})
+
+    def has_content(self, node: TreeNode) -> bool:
+        return node.node_type == "object"
+
+    def get_content(
+        self, session: boto3.Session, node: TreeNode
+    ) -> ContentPreview | None:
+        if node.node_type != "object":
+            return None
+
+        client = session.client("s3")
+        bucket = node.metadata["bucket_name"]
+        key = node.metadata["key"]
+
+        head = client.head_object(Bucket=bucket, Key=key)
+        size = int(head.get("ContentLength", 0))
+        content_type = head.get("ContentType", "") or ""
+
+        if not _is_textual(content_type, key):
+            return ContentPreview(
+                kind="binary",
+                body=(
+                    f"Binary content · {_human_bytes(size)} · "
+                    f"{content_type or 'unknown content-type'}"
+                ),
+                size=size,
+            )
+
+        # Fetch at most _CONTENT_PREVIEW_MAX_BYTES using a Range header.
+        truncated = size > _CONTENT_PREVIEW_MAX_BYTES
+        get_kwargs = {"Bucket": bucket, "Key": key}
+        if truncated:
+            get_kwargs["Range"] = f"bytes=0-{_CONTENT_PREVIEW_MAX_BYTES - 1}"
+
+        response = client.get_object(**get_kwargs)
+        raw_bytes = response["Body"].read()
+        try:
+            body = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            # Content-type claimed it was textual but it wasn't UTF-8.
+            body = raw_bytes.decode("utf-8", errors="replace")
+
+        return ContentPreview(
+            kind="text",
+            body=body,
+            language=_language_for(content_type, key),
+            size=size,
+            truncated=truncated,
+        )
 
 
 plugin = S3Plugin()

@@ -209,3 +209,185 @@ def test_get_details_for_object():
     assert details.title == "S3 Object: readme.txt"
     assert "Size" in details.summary
     assert "Content Type" in details.summary
+
+
+def _object_node(key: str, bucket: str = "my-bucket"):
+    from awstui.models import TreeNode
+
+    return TreeNode(
+        id=f"s3:object:{bucket}:{key}",
+        label=key.rsplit("/", 1)[-1],
+        node_type="object",
+        service="s3",
+        expandable=False,
+        metadata={"bucket_name": bucket, "key": key},
+    )
+
+
+def test_has_content_true_for_objects_only():
+    from awstui.models import TreeNode
+
+    plugin = S3Plugin()
+    obj = _object_node("readme.txt")
+    bucket_node = TreeNode(
+        id="s3:bucket:b",
+        label="b",
+        node_type="bucket",
+        service="s3",
+        expandable=True,
+        metadata={"bucket_name": "b"},
+    )
+    assert plugin.has_content(obj) is True
+    assert plugin.has_content(bucket_node) is False
+
+
+def test_get_content_text_object():
+    session = make_session()
+    client = session.client.return_value
+    client.head_object.return_value = {
+        "ContentLength": 11,
+        "ContentType": "text/plain",
+    }
+    body_mock = MagicMock()
+    body_mock.read.return_value = b"hello world"
+    client.get_object.return_value = {"Body": body_mock}
+
+    plugin = S3Plugin()
+    preview = plugin.get_content(session, _object_node("readme.txt"))
+
+    assert preview is not None
+    assert preview.kind == "text"
+    assert preview.body == "hello world"
+    assert preview.truncated is False
+    # plain text has no lexer
+    assert preview.language is None
+
+
+def test_get_content_json_object_uses_json_lexer():
+    session = make_session()
+    client = session.client.return_value
+    client.head_object.return_value = {
+        "ContentLength": 13,
+        "ContentType": "application/json",
+    }
+    body_mock = MagicMock()
+    body_mock.read.return_value = b'{"hello": true}'
+    client.get_object.return_value = {"Body": body_mock}
+
+    plugin = S3Plugin()
+    preview = plugin.get_content(session, _object_node("config.json"))
+
+    assert preview.kind == "text"
+    assert preview.language == "json"
+
+
+def test_get_content_text_detected_by_extension_when_content_type_missing():
+    session = make_session()
+    client = session.client.return_value
+    client.head_object.return_value = {
+        "ContentLength": 4,
+        "ContentType": "application/octet-stream",
+    }
+    body_mock = MagicMock()
+    body_mock.read.return_value = b"abcd"
+    client.get_object.return_value = {"Body": body_mock}
+
+    plugin = S3Plugin()
+    preview = plugin.get_content(session, _object_node("script.py"))
+
+    assert preview.kind == "text"
+    assert preview.language == "python"
+
+
+def test_get_content_csv_extension_sets_csv_language():
+    """CSV files — whether tagged text/csv, binary/octet-stream, or
+    unlabelled — should surface language='csv' so the UI can render
+    them with rainbow-csv column colouring."""
+    session = make_session()
+    client = session.client.return_value
+    client.head_object.return_value = {
+        "ContentLength": 11,
+        "ContentType": "binary/octet-stream",
+    }
+    body_mock = MagicMock()
+    body_mock.read.return_value = b"a,b,c\n1,2,3"
+    client.get_object.return_value = {"Body": body_mock}
+
+    plugin = S3Plugin()
+    preview = plugin.get_content(session, _object_node("data.csv"))
+
+    assert preview.language == "csv"
+
+
+def test_get_content_binary_octet_stream_falls_back_to_extension():
+    """S3 objects uploaded without a content-type sometimes come back as
+    "binary/octet-stream" rather than the standard "application/octet-stream".
+    Extension sniffing should kick in either way."""
+    session = make_session()
+    client = session.client.return_value
+    client.head_object.return_value = {
+        "ContentLength": 9,
+        "ContentType": "binary/octet-stream",
+    }
+    body_mock = MagicMock()
+    body_mock.read.return_value = b"a,b,c\n1,2,3"
+    client.get_object.return_value = {"Body": body_mock}
+
+    plugin = S3Plugin()
+    preview = plugin.get_content(session, _object_node("data.csv"))
+
+    assert preview.kind == "text"
+
+
+def test_get_content_binary_object_returns_message_without_fetching():
+    session = make_session()
+    client = session.client.return_value
+    client.head_object.return_value = {
+        "ContentLength": 2048,
+        "ContentType": "image/png",
+    }
+
+    plugin = S3Plugin()
+    preview = plugin.get_content(session, _object_node("logo.png"))
+
+    assert preview.kind == "binary"
+    assert "image/png" in preview.body
+    # get_object is NOT called for binary content.
+    client.get_object.assert_not_called()
+
+
+def test_get_content_truncates_large_text_objects():
+    session = make_session()
+    client = session.client.return_value
+    size = 2_000_000
+    client.head_object.return_value = {
+        "ContentLength": size,
+        "ContentType": "text/plain",
+    }
+    body_mock = MagicMock()
+    body_mock.read.return_value = b"x" * 1_000_000
+    client.get_object.return_value = {"Body": body_mock}
+
+    plugin = S3Plugin()
+    preview = plugin.get_content(session, _object_node("big.log"))
+
+    assert preview.truncated is True
+    assert preview.size == size
+    # The client was asked for a byte range, not the whole object.
+    call_kwargs = client.get_object.call_args.kwargs
+    assert call_kwargs["Range"].startswith("bytes=0-")
+
+
+def test_get_content_returns_none_for_non_object_node():
+    from awstui.models import TreeNode
+
+    plugin = S3Plugin()
+    bucket_node = TreeNode(
+        id="s3:bucket:b",
+        label="b",
+        node_type="bucket",
+        service="s3",
+        expandable=True,
+        metadata={"bucket_name": "b"},
+    )
+    assert plugin.get_content(make_session(), bucket_node) is None
