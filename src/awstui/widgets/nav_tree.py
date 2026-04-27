@@ -40,6 +40,10 @@ class AWSNavTree(Tree[TreeNode]):
         self._plugins: dict[str, AWSServicePlugin] = {
             p.service_name: p for p in plugins
         }
+        # Snapshot of original (label, data) child pairs keyed by parent node
+        # id, captured the first time a filter is applied so clearing the
+        # filter can restore the full list without re-fetching from AWS.
+        self._unfiltered_children: dict[int, list[tuple[str, TreeNode]]] = {}
 
     @property
     def session(self) -> boto3.Session:
@@ -140,4 +144,43 @@ class AWSNavTree(Tree[TreeNode]):
     def reset_tree(self) -> None:
         """Clear and repopulate the tree (e.g. after region switch)."""
         self.clear()
+        self._unfiltered_children.clear()
         self._populate_services()
+
+    def filter_children(self, parent, substring: str) -> int:
+        """Show only children of `parent` whose label contains `substring`.
+
+        The first call snapshots the current children so a subsequent empty
+        string restores them. Matching is case-insensitive. Returns the
+        number of visible children after filtering.
+        """
+        parent_id = id(parent)
+        if parent_id not in self._unfiltered_children:
+            self._unfiltered_children[parent_id] = [
+                (str(child.label), child.data)
+                for child in parent.children
+                if child.data is not None
+            ]
+
+        originals = self._unfiltered_children[parent_id]
+        needle = substring.lower()
+
+        parent.remove_children()
+
+        if not needle:
+            # Clearing the filter: restore all originals, drop the snapshot.
+            self._unfiltered_children.pop(parent_id, None)
+            kept = originals
+        else:
+            kept = [
+                (label, data) for label, data in originals if needle in label.lower()
+            ]
+
+        for label, data in kept:
+            child_node = parent.add(label, data=data)
+            child_node.allow_expand = data.expandable
+
+        if not parent.is_expanded:
+            parent.expand()
+
+        return len(kept)

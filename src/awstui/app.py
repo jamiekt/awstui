@@ -16,6 +16,7 @@ from awstui.models import ResourceDetails, TreeNode
 from awstui.plugin import PluginRegistry
 from awstui.services import discover_plugins
 from awstui.widgets.detail_pane import DetailPane
+from awstui.widgets.filter_dialog import FilterDialog
 from awstui.widgets.nav_tree import AWSNavTree, NodeError, NodeSelected
 from awstui.widgets.region_selector import RegionChanged, RegionSelector
 from awstui.widgets.tags_pane import TagsPane, extract_tags
@@ -40,6 +41,7 @@ class AWSBrowserApp(App):
         Binding("a", "copy_arn", "Copy ARN"),
         Binding("u", "copy_uri", "Copy URI"),
         Binding("r", "copy_raw", "Copy Raw"),
+        Binding("f", "filter_children", "Filter"),
         Binding("[", "shrink_pane", "Shrink"),
         Binding("]", "grow_pane", "Grow"),
     ]
@@ -304,6 +306,39 @@ class AWSBrowserApp(App):
             self.notify("No URI available for this resource", severity="warning")
             return
         self._copy_text(uri, f"Copied URI: {uri}")
+
+    def action_filter_children(self) -> None:
+        tree = self.query_one(AWSNavTree)
+        parent = tree.cursor_node
+        if parent is None or parent is tree.root:
+            self.notify(
+                "Select a parent node in the navigation tree first",
+                severity="warning",
+            )
+            return
+        if not parent.allow_expand:
+            self.notify(
+                "Selected node has no children to filter", severity="warning"
+            )
+            return
+        if not parent.children:
+            self.notify(
+                "No children loaded yet — expand the node first",
+                severity="warning",
+            )
+            return
+
+        def apply(substring: str | None) -> None:
+            if substring is None:
+                return
+            count = tree.filter_children(parent, substring)
+            if not substring:
+                self.notify("Filter cleared")
+            else:
+                noun = "match" if count == 1 else "matches"
+                self.notify(f"{count} {noun} for '{substring}'")
+
+        self.push_screen(FilterDialog(), apply)
 
     @staticmethod
     def _uri_for(node: TreeNode | None) -> str:

@@ -48,6 +48,7 @@ Uses your existing AWS credentials (environment variables, `~/.aws/credentials`,
 | `a` | Copy the ARN of the selected resource to the clipboard |
 | `u` | Copy the URI of the selected resource (S3 bucket/object, ECR image) |
 | `r` | Copy the Raw JSON of the selected resource to the clipboard |
+| `f` | Filter children of the highlighted node by substring (empty input clears) |
 
 ## Running Tests
 
