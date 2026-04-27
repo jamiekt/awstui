@@ -7,7 +7,7 @@ import json
 from rich.syntax import Syntax
 from rich.text import Text
 from textual.app import ComposeResult
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import Horizontal, ScrollableContainer, VerticalScroll
 from textual.widgets import ProgressBar, Static, TabbedContent, TabPane
 
 from awstui.models import ContentPreview, ResourceDetails
@@ -37,7 +37,7 @@ def _render_rainbow_csv(body: str, no_wrap: bool = False) -> Text:
     header = body if first_newline == -1 else body[:first_newline]
     delimiter = "\t" if header.count("\t") > header.count(",") else ","
 
-    output = Text(no_wrap=no_wrap, overflow="ignore" if no_wrap else "fold")
+    output = Text(no_wrap=no_wrap, overflow="crop" if no_wrap else "fold")
     reader = csv.reader(io.StringIO(body), delimiter=delimiter)
     for row_index, row in enumerate(reader):
         if row_index > 0:
@@ -134,6 +134,10 @@ class DetailPane(Static, can_focus=True):
         super().__init__(*args, **kwargs)
         self._content_preview: ContentPreview | None = None
         self._content_wrap: bool = True
+        # Stable references so toggles can update in-place instead of
+        # rebuilding the tree (which is async-remove + sync-mount and
+        # produces inconsistent intermediate states).
+        self._content_inner: Static | None = None
 
     def compose(self) -> ComposeResult:
         yield Static("Select a resource to view details")
@@ -158,6 +162,7 @@ class DetailPane(Static, can_focus=True):
         `set_content_preview`.
         """
         self._content_preview = None
+        self._content_inner = None
         self.remove_children()
 
         self.mount(Static(details.title, classes="detail-title"))
@@ -311,6 +316,7 @@ class DetailPane(Static, can_focus=True):
             content_pane = self.query_one("#tab-content", TabPane)
         except Exception:
             return
+        self._content_inner = None
         for child in list(content_pane.children):
             child.remove()
         content_pane.mount(Static(message, classes="content-status"))
@@ -343,39 +349,53 @@ class DetailPane(Static, can_focus=True):
             content_pane = self.query_one("#tab-content", TabPane)
         except Exception:
             return
-        for child in list(content_pane.children):
-            child.remove()
+
+        self._content_inner = None
+        content_pane.remove_children()
 
         if preview.kind != "text":
             content_pane.mount(Static(preview.body, classes="content-status"))
             return
 
+        renderable = self._build_content_renderable(preview)
+        inner = Static(renderable)
+        self._content_inner = inner
+
+        if self._content_wrap:
+            content_pane.mount(VerticalScroll(inner))
+        else:
+            # In no-wrap mode we need a container that doesn't clip children
+            # to the viewport width — otherwise Rich's no_wrap is irrelevant
+            # because the Static is sized to the viewport and folds anyway.
+            # Pin the Static's width to the widest line so it actually
+            # extends past the viewport.
+            max_width = max(
+                (len(line) for line in preview.body.splitlines()), default=1
+            )
+            inner.styles.width = max_width
+            content_pane.mount(ScrollableContainer(inner))
+
+    def _build_content_renderable(self, preview: ContentPreview):
         body = preview.body
         if preview.truncated and preview.size is not None:
             body = (
                 f"-- truncated; showing first {len(preview.body)} of "
                 f"{preview.size} bytes --\n" + body
             )
-
         wrap = self._content_wrap
         if preview.language == "csv":
-            inner = Static(_render_rainbow_csv(body, no_wrap=not wrap))
-        elif preview.language:
-            inner = Static(
-                Syntax(
-                    body,
-                    preview.language,
-                    theme="monokai",
-                    line_numbers=False,
-                    word_wrap=wrap,
-                )
+            return _render_rainbow_csv(body, no_wrap=not wrap)
+        if preview.language:
+            return Syntax(
+                body,
+                preview.language,
+                theme="monokai",
+                line_numbers=False,
+                word_wrap=wrap,
             )
-        elif not wrap:
-            inner = Static(Text(body, no_wrap=True, overflow="ignore"))
-        else:
-            inner = Static(body)
-
-        content_pane.mount(VerticalScroll(inner))
+        if not wrap:
+            return Text(body, no_wrap=True, overflow="crop")
+        return body
 
     def show_error(self, message: str) -> None:
         """Display an error message."""
