@@ -77,9 +77,16 @@ class AWSBrowserApp(App):
     }
     """
 
-    def __init__(self, profile: str | None = None) -> None:
+    def __init__(
+        self,
+        profile: str | None = None,
+        services: list[str] | None = None,
+    ) -> None:
         super().__init__()
         self._profile: str | None = profile
+        self._services: set[str] | None = (
+            {s.lower() for s in services} if services else None
+        )
         self._session: boto3.Session | None = None
         self._identity: str = ""
         self._region: str = "us-east-1"
@@ -133,6 +140,8 @@ class AWSBrowserApp(App):
         # Discover plugins and rebuild tree
         self._plugin_registry = discover_plugins()
         plugins = self._plugin_registry.list_plugins()
+        if self._services is not None:
+            plugins = [p for p in plugins if p.service_name.lower() in self._services]
 
         nav_pane = self.query_one("#nav-pane", Vertical)
         # Remove placeholder tree and region selector

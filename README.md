@@ -34,10 +34,11 @@ uv sync
 
 ```bash
 uv run awstui
-uv run awstui --profile my-profile       # use a specific AWS profile
+uv run awstui --profile my-profile              # use a specific AWS profile
+uv run awstui --service s3 --service lambda     # only show these services
 ```
 
-Uses your existing AWS credentials (environment variables, `~/.aws/credentials`, SSO — whatever boto3 resolves). Pass `--profile`/`-p` to override the profile explicitly.
+Uses your existing AWS credentials (environment variables, `~/.aws/credentials`, SSO — whatever boto3 resolves). Pass `--profile`/`-p` to override the profile explicitly. Pass `--service`/`-s` one or more times to restrict which services appear in the navigation tree; omit it to show all services.
 
 ## Hotkeys
 

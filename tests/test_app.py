@@ -170,3 +170,19 @@ def test_uri_for_s3_object_missing_metadata_returns_empty():
 def test_uri_for_ecr_image_missing_repo_uri_returns_empty():
     node = _node("private_image", image_digest="sha256:abc", image_tags=["v1"])
     assert AWSBrowserApp._uri_for(node) == ""
+
+
+def test_services_defaults_to_none():
+    app = AWSBrowserApp()
+    assert app._services is None
+
+
+def test_services_normalized_to_lowercase_set():
+    app = AWSBrowserApp(services=["S3", "Lambda", "ECR"])
+    assert app._services == {"s3", "lambda", "ecr"}
+
+
+def test_empty_services_list_means_all():
+    # Empty list is falsy, so the app treats it as "no filter".
+    app = AWSBrowserApp(services=[])
+    assert app._services is None
