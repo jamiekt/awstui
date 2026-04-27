@@ -317,9 +317,7 @@ class AWSBrowserApp(App):
             )
             return
         if not parent.allow_expand:
-            self.notify(
-                "Selected node has no children to filter", severity="warning"
-            )
+            self.notify("Selected node has no children to filter", severity="warning")
             return
         if not parent.children:
             self.notify(
