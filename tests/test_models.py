@@ -40,3 +40,16 @@ def test_resource_details_creation():
     assert details.subtitle == "arn:aws:s3:::my-bucket"
     assert details.summary == {"Name": "my-bucket", "Region": "us-east-1"}
     assert details.raw == {"BucketName": "my-bucket"}
+    # summary_groups defaults to empty so existing plugins don't need to set it
+    assert details.summary_groups == []
+
+
+def test_resource_details_with_summary_groups():
+    details = ResourceDetails(
+        title="t",
+        subtitle="",
+        summary={},
+        raw={},
+        summary_groups=[("Columns", {"id": "string"})],
+    )
+    assert details.summary_groups == [("Columns", {"id": "string"})]

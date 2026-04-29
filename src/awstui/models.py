@@ -17,12 +17,21 @@ class TreeNode:
 
 @dataclass
 class ResourceDetails:
-    """Details for display in the detail pane."""
+    """Details for display in the detail pane.
+
+    `summary` is the flat top-level section of key/value pairs.
+
+    `summary_groups` is an optional ordered list of collapsible
+    sub-sections rendered below the top-level summary. Each group has
+    a heading and its own dict of key/value pairs — useful for dense
+    child data like Glue columns / partition keys.
+    """
 
     title: str
     subtitle: str
     summary: dict[str, str]
     raw: dict
+    summary_groups: list[tuple[str, dict[str, str]]] = field(default_factory=list)
 
 
 @dataclass

@@ -126,24 +126,46 @@ class GluePlugin(AWSServicePlugin):
             response = client.get_table(**get_kwargs)
             table = response.get("Table", {})
             storage = table.get("StorageDescriptor", {})
+            columns = storage.get("Columns", [])
+            partition_keys = table.get("PartitionKeys", [])
+
+            summary: dict[str, str] = {
+                "Name": table.get("Name", ""),
+                "Database": table.get("DatabaseName", ""),
+                "Description": table.get("Description", ""),
+                "Type": table.get("TableType", ""),
+                "Owner": table.get("Owner", ""),
+                "Location": storage.get("Location", ""),
+                "Created": str(table.get("CreateTime", "")),
+                "Updated": str(table.get("UpdateTime", "")),
+            }
+            summary_groups: list[tuple[str, dict[str, str]]] = []
+            if columns:
+                summary_groups.append(
+                    (
+                        "Columns",
+                        {col.get("Name", ""): _format_column(col) for col in columns},
+                    )
+                )
+            if partition_keys:
+                summary_groups.append(
+                    (
+                        "Partition Keys",
+                        {
+                            key.get("Name", ""): _format_column(key)
+                            for key in partition_keys
+                        },
+                    )
+                )
+
             return ResourceDetails(
                 title=f"Glue Table: {table.get('Name', node.metadata['table_name'])}",
                 subtitle=(
                     f"{node.metadata['database_name']}.{node.metadata['table_name']}"
                 ),
-                summary={
-                    "Name": table.get("Name", ""),
-                    "Database": table.get("DatabaseName", ""),
-                    "Description": table.get("Description", ""),
-                    "Type": table.get("TableType", ""),
-                    "Owner": table.get("Owner", ""),
-                    "Location": storage.get("Location", ""),
-                    "Columns": str(len(storage.get("Columns", []))),
-                    "Partition Keys": str(len(table.get("PartitionKeys", []))),
-                    "Created": str(table.get("CreateTime", "")),
-                    "Updated": str(table.get("UpdateTime", "")),
-                },
+                summary=summary,
                 raw=table,
+                summary_groups=summary_groups,
             )
 
         if node.node_type == "category":
@@ -152,6 +174,15 @@ class GluePlugin(AWSServicePlugin):
             )
 
         return ResourceDetails(title=node.label, subtitle="", summary={}, raw={})
+
+
+def _format_column(col: dict) -> str:
+    """Format a Glue Column/PartitionKey for the summary: 'type — comment'."""
+    type_ = col.get("Type", "")
+    comment = col.get("Comment", "")
+    if type_ and comment:
+        return f"{type_} — {comment}"
+    return type_ or comment
 
 
 def _get_tables_kwargs(database_node: TreeNode) -> dict:

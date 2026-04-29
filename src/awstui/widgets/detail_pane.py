@@ -99,6 +99,9 @@ class DetailPane(Static, can_focus=True):
     .summary-label {
         color: $text-muted;
     }
+    .summary-group-heading {
+        margin-top: 1;
+    }
     .tag-summary-key {
         text-style: bold;
         color: $accent;
@@ -198,7 +201,7 @@ class DetailPane(Static, can_focus=True):
                 )
             )
 
-        if details.summary:
+        if details.summary or details.summary_groups:
             for label, value in details.summary.items():
                 summary_pane.mount(
                     Static(
@@ -209,6 +212,24 @@ class DetailPane(Static, can_focus=True):
                         classes="summary-row",
                     )
                 )
+            for heading, rows in details.summary_groups:
+                summary_pane.mount(
+                    Static(
+                        Text.assemble((f"{heading}:", "bold")),
+                        classes="summary-group-heading",
+                    )
+                )
+                for label, value in rows.items():
+                    summary_pane.mount(
+                        Static(
+                            Text.assemble(
+                                ("  ", ""),
+                                (f"{label}: ", "bold dim"),
+                                (str(value), ""),
+                            ),
+                            classes="summary-row",
+                        )
+                    )
         else:
             summary_pane.mount(Static(empty_summary_status, id="summary-status"))
 

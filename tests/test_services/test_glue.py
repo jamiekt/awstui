@@ -200,11 +200,11 @@ def test_get_details_for_table():
             "StorageDescriptor": {
                 "Location": "s3://my-bucket/events/",
                 "Columns": [
-                    {"Name": "id", "Type": "string"},
+                    {"Name": "id", "Type": "string", "Comment": "unique event id"},
                     {"Name": "ts", "Type": "timestamp"},
                 ],
             },
-            "PartitionKeys": [{"Name": "dt", "Type": "date"}],
+            "PartitionKeys": [{"Name": "dt", "Type": "date", "Comment": "event date"}],
             "CreateTime": "2026-01-01T00:00:00Z",
         }
     }
@@ -228,11 +228,47 @@ def test_get_details_for_table():
     assert details.title == "Glue Table: events"
     assert details.subtitle == "analytics.events"
     assert details.summary["Location"] == "s3://my-bucket/events/"
-    assert details.summary["Columns"] == "2"
-    assert details.summary["Partition Keys"] == "1"
+    # Columns and partition keys render as their own summary groups.
+    groups = dict(details.summary_groups)
+    assert groups["Columns"] == {
+        "id": "string — unique event id",
+        "ts": "timestamp",
+    }
+    assert groups["Partition Keys"] == {"dt": "date — event date"}
+    # Top-level summary no longer includes raw counts — those are visible
+    # in the group heading.
+    assert "Columns" not in details.summary
+    assert "Partition Keys" not in details.summary
     client.get_table.assert_called_once_with(
         DatabaseName="analytics", Name="events", CatalogId="123"
     )
+
+
+def test_get_details_for_table_without_columns_or_partitions():
+    session = make_session()
+    client = session.client.return_value
+    client.get_table.return_value = {
+        "Table": {
+            "Name": "empty",
+            "DatabaseName": "analytics",
+            "StorageDescriptor": {"Location": "s3://x/empty/"},
+        }
+    }
+
+    node = TreeNode(
+        id="glue:table:analytics:empty",
+        label="empty",
+        node_type="table",
+        service="glue",
+        expandable=False,
+        metadata={"table_name": "empty", "database_name": "analytics"},
+    )
+
+    plugin = GluePlugin()
+    details = plugin.get_details(session, node)
+
+    # No group when there's nothing to put in it.
+    assert details.summary_groups == []
 
 
 def test_get_details_for_category():
