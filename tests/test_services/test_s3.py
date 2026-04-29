@@ -209,6 +209,150 @@ def test_get_details_for_object():
     assert details.title == "S3 Object: readme.txt"
     assert "Size" in details.summary
     assert "Content Type" in details.summary
+    # Versioning not enabled on this mock bucket, so no Versions group.
+    assert details.summary_groups == []
+
+
+def test_get_details_for_object_includes_versions_when_enabled():
+    session = make_session()
+    client = session.client.return_value
+    client.head_object.return_value = {
+        "ContentLength": 1024,
+        "ContentType": "text/plain",
+        "LastModified": "2026-03-28T14:32:01Z",
+    }
+    client.get_bucket_versioning.return_value = {"Status": "Enabled"}
+    # The paginator returns two pages, each mixing other-key entries to
+    # prove we filter by exact key match.
+    client.get_paginator.return_value.paginate.return_value = [
+        {
+            "Versions": [
+                {
+                    "Key": "readme.txt",
+                    "VersionId": "v3",
+                    "LastModified": "2026-03-28T14:32:01Z",
+                    "IsLatest": True,
+                    "Size": 1024,
+                },
+                {
+                    "Key": "other.txt",
+                    "VersionId": "vOther",
+                    "LastModified": "2026-03-28T14:32:01Z",
+                    "IsLatest": True,
+                    "Size": 1,
+                },
+            ],
+            "DeleteMarkers": [],
+        },
+        {
+            "Versions": [
+                {
+                    "Key": "readme.txt",
+                    "VersionId": "v1",
+                    "LastModified": "2026-02-01T00:00:00Z",
+                    "IsLatest": False,
+                    "Size": 256,
+                },
+            ],
+            "DeleteMarkers": [
+                {
+                    "Key": "readme.txt",
+                    "VersionId": "v2-dm",
+                    "LastModified": "2026-03-01T00:00:00Z",
+                    "IsLatest": False,
+                },
+            ],
+        },
+    ]
+
+    from awstui.models import TreeNode
+
+    obj_node = TreeNode(
+        id="s3:object:my-bucket:readme.txt",
+        label="readme.txt",
+        node_type="object",
+        service="s3",
+        expandable=False,
+        metadata={"bucket_name": "my-bucket", "key": "readme.txt"},
+    )
+
+    plugin = S3Plugin()
+    details = plugin.get_details(session, obj_node)
+
+    groups = dict(details.summary_groups)
+    assert "Versions" in groups
+    versions = groups["Versions"]
+    # Filtered out the "other.txt" version; kept the three for readme.txt.
+    assert set(versions.keys()) == {"v3", "v2-dm", "v1"}
+    assert "latest" in versions["v3"]
+    assert "delete marker" in versions["v2-dm"]
+    # Non-latest, non-dm versions should not carry a tag.
+    assert "latest" not in versions["v1"]
+    assert "delete marker" not in versions["v1"]
+
+
+def test_get_details_for_object_no_versions_group_when_versioning_off():
+    session = make_session()
+    client = session.client.return_value
+    client.head_object.return_value = {"ContentLength": 0, "ContentType": "text/plain"}
+    client.get_bucket_versioning.return_value = {"Status": "Suspended"}
+
+    from awstui.models import TreeNode
+
+    obj_node = TreeNode(
+        id="s3:object:my-bucket:readme.txt",
+        label="readme.txt",
+        node_type="object",
+        service="s3",
+        expandable=False,
+        metadata={"bucket_name": "my-bucket", "key": "readme.txt"},
+    )
+
+    plugin = S3Plugin()
+    details = plugin.get_details(session, obj_node)
+    assert details.summary_groups == []
+    # list_object_versions should never have been called.
+    client.get_paginator.assert_not_called()
+
+
+def test_get_details_for_object_truncates_many_versions():
+    session = make_session()
+    client = session.client.return_value
+    client.head_object.return_value = {"ContentLength": 0, "ContentType": "text/plain"}
+    client.get_bucket_versioning.return_value = {"Status": "Enabled"}
+    # 150 versions, all for the same key.
+    many_versions = [
+        {
+            "Key": "k",
+            "VersionId": f"v{i:03d}",
+            "LastModified": "2026-01-01T00:00:00Z",
+            "IsLatest": i == 0,
+            "Size": 10,
+        }
+        for i in range(150)
+    ]
+    client.get_paginator.return_value.paginate.return_value = [
+        {"Versions": many_versions, "DeleteMarkers": []},
+    ]
+
+    from awstui.models import TreeNode
+
+    obj_node = TreeNode(
+        id="s3:object:my-bucket:k",
+        label="k",
+        node_type="object",
+        service="s3",
+        expandable=False,
+        metadata={"bucket_name": "my-bucket", "key": "k"},
+    )
+
+    plugin = S3Plugin()
+    details = plugin.get_details(session, obj_node)
+    versions = dict(details.summary_groups)["Versions"]
+    # 100 actual version rows + one "..." row.
+    assert len(versions) == 101
+    assert "..." in versions
+    assert "50" in versions["..."]  # 50 more omitted
 
 
 def _object_node(key: str, bucket: str = "my-bucket"):

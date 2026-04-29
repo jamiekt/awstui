@@ -362,6 +362,10 @@ class S3Plugin(AWSServicePlugin):
             bucket = node.metadata["bucket_name"]
             key = node.metadata["key"]
             head = client.head_object(Bucket=bucket, Key=key)
+            summary_groups: list[tuple[str, dict[str, str]]] = []
+            versions = _list_object_versions(client, bucket, key)
+            if versions:
+                summary_groups.append(("Versions", versions))
             return ResourceDetails(
                 title=f"S3 Object: {node.label}",
                 subtitle=f"s3://{bucket}/{key}",
@@ -374,6 +378,7 @@ class S3Plugin(AWSServicePlugin):
                     "Storage Class": head.get("StorageClass", "STANDARD"),
                 },
                 raw=head,
+                summary_groups=summary_groups,
             )
 
         if node.node_type == "directory_bucket":
@@ -512,6 +517,77 @@ class S3Plugin(AWSServicePlugin):
             size=size,
             truncated=truncated,
         )
+
+
+_MAX_VERSIONS_SHOWN = 100
+
+
+def _list_object_versions(client, bucket: str, key: str) -> dict[str, str]:
+    """List versions + delete markers for a single S3 object.
+
+    Returns an ordered dict of `version_id -> description`. Empty when the
+    bucket doesn't have versioning enabled. Capped at `_MAX_VERSIONS_SHOWN`
+    entries; a synthetic "..." row is appended when truncated.
+    """
+    try:
+        status = client.get_bucket_versioning(Bucket=bucket).get("Status")
+    except ClientError:
+        return {}
+    if status != "Enabled":
+        return {}
+
+    paginator = client.get_paginator("list_object_versions")
+    entries: list[tuple[str, str, bool, int | None, bool]] = []
+    # (version_id, last_modified, is_latest, size, is_delete_marker)
+
+    for page in paginator.paginate(Bucket=bucket, Prefix=key):
+        for v in page.get("Versions", []):
+            if v.get("Key") != key:
+                continue
+            entries.append(
+                (
+                    v.get("VersionId", ""),
+                    str(v.get("LastModified", "")),
+                    bool(v.get("IsLatest", False)),
+                    v.get("Size"),
+                    False,
+                )
+            )
+        for dm in page.get("DeleteMarkers", []):
+            if dm.get("Key") != key:
+                continue
+            entries.append(
+                (
+                    dm.get("VersionId", ""),
+                    str(dm.get("LastModified", "")),
+                    bool(dm.get("IsLatest", False)),
+                    None,
+                    True,
+                )
+            )
+        if len(entries) > _MAX_VERSIONS_SHOWN:
+            break
+
+    result: dict[str, str] = {}
+    for version_id, last_modified, is_latest, size, is_delete_marker in entries[
+        :_MAX_VERSIONS_SHOWN
+    ]:
+        parts: list[str] = [last_modified]
+        if size is not None:
+            parts.append(_human_bytes(int(size)))
+        tags: list[str] = []
+        if is_latest:
+            tags.append("latest")
+        if is_delete_marker:
+            tags.append("delete marker")
+        if tags:
+            parts.append(", ".join(tags))
+        result[version_id] = " · ".join(parts)
+
+    if len(entries) > _MAX_VERSIONS_SHOWN:
+        omitted = len(entries) - _MAX_VERSIONS_SHOWN
+        result["..."] = f"{omitted} more version(s) omitted"
+    return result
 
 
 plugin = S3Plugin()
