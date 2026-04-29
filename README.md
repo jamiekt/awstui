@@ -20,7 +20,7 @@ A read-only terminal UI for browsing AWS resources, built with [Textual](https:/
 
 ### Supported Services
 
-S3, Lambda, RDS, IAM, SQS, SNS, Secrets Manager, ECR
+S3, Lambda, RDS, IAM, SQS, SNS, Secrets Manager, ECR, Glue
 
 ## Installation
 
