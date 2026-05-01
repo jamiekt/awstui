@@ -24,10 +24,16 @@ def make_tree_node(label: str) -> TreeNode:
     )
 
 
-def make_parent(labels: list[str]):
+def make_parent(labels: list[str], parent_label: str = "Buckets"):
     """Build a fake Textual tree-node parent with the given child labels."""
     parent = MagicMock()
     parent.is_expanded = True
+    parent.label = parent_label
+
+    def set_label(new_label):
+        parent.label = new_label
+
+    parent.set_label.side_effect = set_label
 
     children = []
     added: list[tuple[str, TreeNode]] = []
@@ -60,6 +66,7 @@ def make_parent(labels: list[str]):
 def new_tree() -> AWSNavTree:
     tree = AWSNavTree.__new__(AWSNavTree)
     tree._unfiltered_children = {}
+    tree._original_labels = {}
     return tree
 
 
@@ -131,3 +138,43 @@ def test_clearing_drops_snapshot():
 
     tree.filter_children(parent, "")
     assert id(parent) not in tree._unfiltered_children
+
+
+def test_filter_sets_badge_on_parent_label():
+    tree = new_tree()
+    parent = make_parent(["alpha-bucket", "beta-bucket"], parent_label="Buckets")
+
+    tree.filter_children(parent, "alpha")
+
+    # parent.label is now a Rich Text carrying the original label + badge.
+    rendered = str(parent.label)
+    assert rendered.startswith("Buckets")
+    assert "alpha" in rendered
+    # The badge uses the 🔍 icon.
+    assert "🔍" in rendered
+
+
+def test_clearing_filter_restores_parent_label():
+    tree = new_tree()
+    parent = make_parent(["a", "b"], parent_label="My Section")
+
+    tree.filter_children(parent, "a")
+    assert "🔍" in str(parent.label)
+
+    tree.filter_children(parent, "")
+    assert str(parent.label) == "My Section"
+    # And the tracking dict is cleared too.
+    assert id(parent) not in tree._original_labels
+
+
+def test_filter_twice_updates_badge_to_new_substring():
+    tree = new_tree()
+    parent = make_parent(["apple", "apricot", "banana"], parent_label="Fruit")
+
+    tree.filter_children(parent, "ap")
+    assert "ap" in str(parent.label)
+
+    tree.filter_children(parent, "banana")
+    rendered = str(parent.label)
+    assert "banana" in rendered
+    assert " ap)" not in rendered  # the old substring is gone

@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import boto3
 from botocore.exceptions import ClientError
+from rich.text import Text
 from textual.binding import Binding
 from textual.message import Message
 from textual.widgets import Tree
 
 from awstui.models import TreeNode
 from awstui.plugin import AWSServicePlugin
+
+# Shown next to a node's label when a filter is active on its children.
+_FILTER_BADGE_COLOR = "bright_yellow"
+_FILTER_ICON = "🔍"
 
 
 class NodeSelected(Message):
@@ -44,6 +49,9 @@ class AWSNavTree(Tree[TreeNode]):
         # id, captured the first time a filter is applied so clearing the
         # filter can restore the full list without re-fetching from AWS.
         self._unfiltered_children: dict[int, list[tuple[str, TreeNode]]] = {}
+        # Original (unfiltered) label for each currently-filtered parent, so
+        # we can restore it when the filter is cleared.
+        self._original_labels: dict[int, str] = {}
 
     @property
     def session(self) -> boto3.Session:
@@ -145,6 +153,7 @@ class AWSNavTree(Tree[TreeNode]):
         """Clear and repopulate the tree (e.g. after region switch)."""
         self.clear()
         self._unfiltered_children.clear()
+        self._original_labels.clear()
         self._populate_services()
 
     def filter_children(self, parent, substring: str) -> int:
@@ -153,6 +162,10 @@ class AWSNavTree(Tree[TreeNode]):
         The first call snapshots the current children so a subsequent empty
         string restores them. Matching is case-insensitive. Returns the
         number of visible children after filtering.
+
+        Also updates the parent node's own label to display a filter badge
+        (icon + substring in parentheses) so the filter is visible even
+        when the parent is collapsed.
         """
         parent_id = id(parent)
         if parent_id not in self._unfiltered_children:
@@ -161,6 +174,8 @@ class AWSNavTree(Tree[TreeNode]):
                 for child in parent.children
                 if child.data is not None
             ]
+        if parent_id not in self._original_labels:
+            self._original_labels[parent_id] = str(parent.label)
 
         originals = self._unfiltered_children[parent_id]
         needle = substring.lower()
@@ -168,13 +183,17 @@ class AWSNavTree(Tree[TreeNode]):
         parent.remove_children()
 
         if not needle:
-            # Clearing the filter: restore all originals, drop the snapshot.
+            # Clearing the filter: restore all originals + the plain label.
             self._unfiltered_children.pop(parent_id, None)
+            parent.set_label(self._original_labels.pop(parent_id))
             kept = originals
         else:
             kept = [
                 (label, data) for label, data in originals if needle in label.lower()
             ]
+            parent.set_label(
+                _label_with_filter_badge(self._original_labels[parent_id], substring)
+            )
 
         for label, data in kept:
             child_node = parent.add(label, data=data)
@@ -184,3 +203,14 @@ class AWSNavTree(Tree[TreeNode]):
             parent.expand()
 
         return len(kept)
+
+
+def _label_with_filter_badge(original_label: str, substring: str) -> Text:
+    """Compose a parent label with a coloured filter badge appended.
+
+    e.g. "Buckets (🔍 logs)" with the part in parentheses rendered in
+    `_FILTER_BADGE_COLOR`.
+    """
+    label = Text(original_label)
+    label.append(f" ({_FILTER_ICON} {substring})", style=_FILTER_BADGE_COLOR)
+    return label
