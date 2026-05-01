@@ -24,6 +24,15 @@ _RAINBOW_CSV_COLORS = (
 )
 
 
+def _set_active_tab(tabbed: TabbedContent, tab_id: str) -> None:
+    """Safely set a TabbedContent's active tab, ignoring errors if the id
+    is unknown (race-conditions during rebuilds)."""
+    try:
+        tabbed.active = tab_id
+    except Exception:
+        pass
+
+
 def _render_rainbow_csv(body: str, no_wrap: bool = False) -> Text:
     """Return a Rich Text where each column is coloured from a cycling palette.
 
@@ -145,6 +154,14 @@ class DetailPane(Static, can_focus=True):
     def compose(self) -> ComposeResult:
         yield Static("Select a resource to view details")
 
+    def _current_active_tab_id(self) -> str | None:
+        """Return the id of the currently-active TabPane, or None."""
+        try:
+            tabbed = self.query_one(TabbedContent)
+        except Exception:
+            return None
+        return tabbed.active or None
+
     def show_details(
         self,
         details: ResourceDetails,
@@ -164,6 +181,10 @@ class DetailPane(Static, can_focus=True):
         `include_content` adds a "Content" tab populated via
         `set_content_preview`.
         """
+        # Capture the currently-active tab so we can reselect it after
+        # the rebuild, preserving user focus across selections.
+        previous_active = self._current_active_tab_id()
+
         self._content_preview = None
         self._content_inner = None
         self.remove_children()
@@ -181,9 +202,12 @@ class DetailPane(Static, can_focus=True):
         tabbed.add_pane(summary_pane)
         tabbed.add_pane(raw_pane)
 
+        available_tab_ids: set[str] = {"tab-summary", "tab-raw"}
+
         if include_content:
             content_pane = TabPane("Content", id="tab-content")
             tabbed.add_pane(content_pane)
+            available_tab_ids.add("tab-content")
             content_pane.mount(
                 Static(
                     "Select this tab to load content",
@@ -194,12 +218,19 @@ class DetailPane(Static, can_focus=True):
         if include_tag_summary:
             tag_pane = TabPane("Tag Summary", id="tab-tag-summary")
             tabbed.add_pane(tag_pane)
+            available_tab_ids.add("tab-tag-summary")
             tag_pane.mount(
                 Static(
                     "Select this tab to load tag summary",
                     classes="tag-summary-status",
                 )
             )
+
+        # Re-activate the previous tab if the new selection also exposes it.
+        # tabbed.add_pane is asynchronous — the panes aren't wired up yet,
+        # so we have to defer setting `active` until after the next refresh.
+        if previous_active and previous_active in available_tab_ids:
+            self.call_after_refresh(_set_active_tab, tabbed, previous_active)
 
         if details.summary or details.summary_groups:
             for label, value in details.summary.items():
