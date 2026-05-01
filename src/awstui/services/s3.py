@@ -288,12 +288,22 @@ class S3Plugin(AWSServicePlugin):
                 for ap in response.get("AccessPointList", [])
             ]
 
+        if node.node_type == "object":
+            return _build_version_children(session, node)
+
         if node.node_type not in ("bucket", "prefix"):
             return []
 
         client = session.client("s3")
         bucket = node.metadata["bucket_name"]
         prefix = node.metadata.get("prefix", "")
+
+        # One versioning check per bucket walk — cached on each object /
+        # prefix child so they don't re-query. `None` means "unknown" and
+        # causes the object to stay non-expandable (safe default).
+        versioning_enabled = node.metadata.get("versioning_enabled")
+        if versioning_enabled is None:
+            versioning_enabled = _bucket_versioning_enabled(client, bucket)
 
         paginator = client.get_paginator("list_objects_v2")
         children: list[TreeNode] = []
@@ -309,7 +319,11 @@ class S3Plugin(AWSServicePlugin):
                         node_type="prefix",
                         service="s3",
                         expandable=True,
-                        metadata={"bucket_name": bucket, "prefix": p},
+                        metadata={
+                            "bucket_name": bucket,
+                            "prefix": p,
+                            "versioning_enabled": versioning_enabled,
+                        },
                     )
                 )
 
@@ -324,8 +338,12 @@ class S3Plugin(AWSServicePlugin):
                         label=display,
                         node_type="object",
                         service="s3",
-                        expandable=False,
-                        metadata={"bucket_name": bucket, "key": key},
+                        expandable=bool(versioning_enabled),
+                        metadata={
+                            "bucket_name": bucket,
+                            "key": key,
+                            "versioning_enabled": versioning_enabled,
+                        },
                     )
                 )
 
@@ -380,6 +398,40 @@ class S3Plugin(AWSServicePlugin):
                 },
                 raw=head,
                 summary_groups=summary_groups,
+            )
+
+        if node.node_type == "object_version":
+            bucket = node.metadata["bucket_name"]
+            key = node.metadata["key"]
+            version_id = node.metadata["version_id"]
+            tags: list[str] = []
+            if node.metadata.get("is_latest"):
+                tags.append("latest")
+            if node.metadata.get("is_delete_marker"):
+                tags.append("delete marker")
+            summary = {
+                "Key": key,
+                "Version ID": version_id,
+                "Last Modified": str(node.metadata.get("last_modified", "")),
+                "URI": f"s3://{bucket}/{key}?versionId={version_id}",
+            }
+            if node.metadata.get("size") is not None:
+                summary["Size"] = str(node.metadata["size"])
+            if tags:
+                summary["Status"] = ", ".join(tags)
+            return ResourceDetails(
+                title=f"S3 Object Version: {key}",
+                subtitle=f"arn:aws:s3:::{bucket}/{key}",
+                summary=summary,
+                raw={
+                    "Bucket": bucket,
+                    "Key": key,
+                    "VersionId": version_id,
+                    "IsLatest": node.metadata.get("is_latest", False),
+                    "IsDeleteMarker": node.metadata.get("is_delete_marker", False),
+                    "Size": node.metadata.get("size"),
+                    "LastModified": node.metadata.get("last_modified", ""),
+                },
             )
 
         if node.node_type == "directory_bucket":
@@ -471,124 +523,213 @@ class S3Plugin(AWSServicePlugin):
         return ResourceDetails(title=node.label, subtitle="", summary={}, raw={})
 
     def has_content(self, node: TreeNode) -> bool:
-        return node.node_type == "object"
+        if node.node_type == "object":
+            return True
+        if node.node_type == "object_version":
+            # Delete markers have no body to preview.
+            return not node.metadata.get("is_delete_marker", False)
+        return False
 
     def get_content(
         self, session: boto3.Session, node: TreeNode
     ) -> ContentPreview | None:
-        if node.node_type != "object":
-            return None
-
-        client = session.client("s3")
-        bucket = node.metadata["bucket_name"]
-        key = node.metadata["key"]
-
-        head = client.head_object(Bucket=bucket, Key=key)
-        size = int(head.get("ContentLength", 0))
-        content_type = head.get("ContentType", "") or ""
-
-        if not _is_textual(content_type, key):
-            return ContentPreview(
-                kind="binary",
-                body=(
-                    f"Binary content · {_human_bytes(size)} · "
-                    f"{content_type or 'unknown content-type'}"
-                ),
-                size=size,
+        if node.node_type == "object":
+            return _preview_s3_object(session, node, version_id=None)
+        if node.node_type == "object_version":
+            if node.metadata.get("is_delete_marker"):
+                return ContentPreview(
+                    kind="message",
+                    body="Delete marker — no content",
+                )
+            return _preview_s3_object(
+                session, node, version_id=node.metadata["version_id"]
             )
-
-        # Fetch at most _CONTENT_PREVIEW_MAX_BYTES using a Range header.
-        truncated = size > _CONTENT_PREVIEW_MAX_BYTES
-        get_kwargs = {"Bucket": bucket, "Key": key}
-        if truncated:
-            get_kwargs["Range"] = f"bytes=0-{_CONTENT_PREVIEW_MAX_BYTES - 1}"
-
-        response = client.get_object(**get_kwargs)
-        raw_bytes = response["Body"].read()
-        try:
-            body = raw_bytes.decode("utf-8")
-        except UnicodeDecodeError:
-            # Content-type claimed it was textual but it wasn't UTF-8.
-            body = raw_bytes.decode("utf-8", errors="replace")
-
-        return ContentPreview(
-            kind="text",
-            body=body,
-            language=_language_for(content_type, key),
-            size=size,
-            truncated=truncated,
-        )
+        return None
 
 
 _MAX_VERSIONS_SHOWN = 100
 
 
-def _list_object_versions(client, bucket: str, key: str) -> dict[str, str]:
-    """List versions + delete markers for a single S3 object.
+def _preview_s3_object(
+    session: boto3.Session, node: TreeNode, version_id: str | None
+) -> ContentPreview | None:
+    """Build a ContentPreview for an S3 object, optionally a specific version.
 
-    Returns an ordered dict of `version_id -> description`. Empty when the
-    bucket doesn't have versioning enabled. Capped at `_MAX_VERSIONS_SHOWN`
-    entries; a synthetic "..." row is appended when truncated.
+    Mirrors the original in-line object preview code but parameterised so
+    object_version nodes can call it with a VersionId.
+    """
+    client = session.client("s3")
+    bucket = node.metadata["bucket_name"]
+    key = node.metadata["key"]
+
+    head_kwargs: dict = {"Bucket": bucket, "Key": key}
+    if version_id:
+        head_kwargs["VersionId"] = version_id
+    head = client.head_object(**head_kwargs)
+    size = int(head.get("ContentLength", 0))
+    content_type = head.get("ContentType", "") or ""
+
+    if not _is_textual(content_type, key):
+        return ContentPreview(
+            kind="binary",
+            body=(
+                f"Binary content · {_human_bytes(size)} · "
+                f"{content_type or 'unknown content-type'}"
+            ),
+            size=size,
+        )
+
+    truncated = size > _CONTENT_PREVIEW_MAX_BYTES
+    get_kwargs: dict = {"Bucket": bucket, "Key": key}
+    if version_id:
+        get_kwargs["VersionId"] = version_id
+    if truncated:
+        get_kwargs["Range"] = f"bytes=0-{_CONTENT_PREVIEW_MAX_BYTES - 1}"
+
+    response = client.get_object(**get_kwargs)
+    raw_bytes = response["Body"].read()
+    try:
+        body = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        body = raw_bytes.decode("utf-8", errors="replace")
+
+    return ContentPreview(
+        kind="text",
+        body=body,
+        language=_language_for(content_type, key),
+        size=size,
+        truncated=truncated,
+    )
+
+
+def _bucket_versioning_enabled(client, bucket: str) -> bool:
+    """Return True if the bucket has versioning enabled, False otherwise
+    (including if the call fails — we just treat it as 'no'.)"""
+    try:
+        return client.get_bucket_versioning(Bucket=bucket).get("Status") == "Enabled"
+    except ClientError:
+        return False
+
+
+def _build_version_children(session: boto3.Session, node: TreeNode) -> list[TreeNode]:
+    """Build the version TreeNodes that appear under an S3 object."""
+    client = session.client("s3")
+    bucket = node.metadata["bucket_name"]
+    key = node.metadata["key"]
+    records = _fetch_object_versions(client, bucket, key)
+    children: list[TreeNode] = []
+    for record in records[:_MAX_VERSIONS_SHOWN]:
+        version_id = record["version_id"]
+        children.append(
+            TreeNode(
+                id=f"s3:object_version:{bucket}:{key}:{version_id}",
+                label=_version_node_label(record),
+                node_type="object_version",
+                service="s3",
+                expandable=False,
+                metadata={
+                    "bucket_name": bucket,
+                    "key": key,
+                    "version_id": version_id,
+                    "is_latest": record["is_latest"],
+                    "is_delete_marker": record["is_delete_marker"],
+                    "size": record["size"],
+                    "last_modified": record["last_modified"],
+                },
+            )
+        )
+    return children
+
+
+def _fetch_object_versions(client, bucket: str, key: str) -> list[dict]:
+    """Return the raw version + delete-marker records for a single S3 object.
+
+    Returns an empty list when the bucket doesn't have versioning enabled.
+    Stops fetching once `_MAX_VERSIONS_SHOWN + 1` entries have been
+    collected — callers use the "+1" to detect truncation.
     """
     try:
         status = client.get_bucket_versioning(Bucket=bucket).get("Status")
     except ClientError:
-        return {}
+        return []
     if status != "Enabled":
-        return {}
+        return []
 
     paginator = client.get_paginator("list_object_versions")
-    entries: list[tuple[str, str, bool, int | None, bool]] = []
-    # (version_id, last_modified, is_latest, size, is_delete_marker)
-
+    records: list[dict] = []
+    limit = _MAX_VERSIONS_SHOWN + 1
     for page in paginator.paginate(Bucket=bucket, Prefix=key):
         for v in page.get("Versions", []):
             if v.get("Key") != key:
                 continue
-            entries.append(
-                (
-                    v.get("VersionId", ""),
-                    str(v.get("LastModified", "")),
-                    bool(v.get("IsLatest", False)),
-                    v.get("Size"),
-                    False,
-                )
+            records.append(
+                {
+                    "version_id": v.get("VersionId", ""),
+                    "last_modified": str(v.get("LastModified", "")),
+                    "is_latest": bool(v.get("IsLatest", False)),
+                    "size": v.get("Size"),
+                    "is_delete_marker": False,
+                }
             )
         for dm in page.get("DeleteMarkers", []):
             if dm.get("Key") != key:
                 continue
-            entries.append(
-                (
-                    dm.get("VersionId", ""),
-                    str(dm.get("LastModified", "")),
-                    bool(dm.get("IsLatest", False)),
-                    None,
-                    True,
-                )
+            records.append(
+                {
+                    "version_id": dm.get("VersionId", ""),
+                    "last_modified": str(dm.get("LastModified", "")),
+                    "is_latest": bool(dm.get("IsLatest", False)),
+                    "size": None,
+                    "is_delete_marker": True,
+                }
             )
-        if len(entries) > _MAX_VERSIONS_SHOWN:
+        if len(records) >= limit:
             break
+    return records
 
+
+def _format_version_records(records: list[dict]) -> dict[str, str]:
+    """Turn fetched version records into a {version_id -> description} dict
+    for the Summary tab. Capped at _MAX_VERSIONS_SHOWN; a synthetic "..."
+    row is appended when truncated.
+    """
     result: dict[str, str] = {}
-    for version_id, last_modified, is_latest, size, is_delete_marker in entries[
-        :_MAX_VERSIONS_SHOWN
-    ]:
-        parts: list[str] = [last_modified]
+    for record in records[:_MAX_VERSIONS_SHOWN]:
+        parts: list[str] = [record["last_modified"]]
+        size = record["size"]
         if size is not None:
             parts.append(_human_bytes(int(size)))
         tags: list[str] = []
-        if is_latest:
+        if record["is_latest"]:
             tags.append("latest")
-        if is_delete_marker:
+        if record["is_delete_marker"]:
             tags.append("delete marker")
         if tags:
             parts.append(", ".join(tags))
-        result[version_id] = " · ".join(parts)
+        result[record["version_id"]] = " · ".join(parts)
 
-    if len(entries) > _MAX_VERSIONS_SHOWN:
-        omitted = len(entries) - _MAX_VERSIONS_SHOWN
+    if len(records) > _MAX_VERSIONS_SHOWN:
+        omitted = len(records) - _MAX_VERSIONS_SHOWN
         result["..."] = f"{omitted} more version(s) omitted"
     return result
+
+
+def _list_object_versions(client, bucket: str, key: str) -> dict[str, str]:
+    """Legacy wrapper used by the summary path: fetch + format in one call."""
+    return _format_version_records(_fetch_object_versions(client, bucket, key))
+
+
+def _version_node_label(record: dict) -> str:
+    """Short label for a version node in the nav tree."""
+    parts = [record["last_modified"].replace("T", " ").rstrip("Z")]
+    tags: list[str] = []
+    if record["is_latest"]:
+        tags.append("latest")
+    if record["is_delete_marker"]:
+        tags.append("delete marker")
+    if tags:
+        parts.append(", ".join(tags))
+    return " · ".join(parts)
 
 
 plugin = S3Plugin()

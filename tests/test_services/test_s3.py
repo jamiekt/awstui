@@ -535,3 +535,240 @@ def test_get_content_returns_none_for_non_object_node():
         metadata={"bucket_name": "b"},
     )
     assert plugin.get_content(make_session(), bucket_node) is None
+
+
+def test_bucket_children_mark_objects_expandable_when_versioning_enabled():
+    """When the bucket has versioning enabled, object children should be
+    expandable so the user can drill into versions from the nav tree."""
+    session = make_session()
+    client = session.client.return_value
+    client.get_bucket_versioning.return_value = {"Status": "Enabled"}
+    client.get_paginator.return_value.paginate.return_value = [
+        {
+            "CommonPrefixes": [],
+            "Contents": [{"Key": "readme.txt"}],
+        }
+    ]
+
+    from awstui.models import TreeNode
+
+    bucket_node = TreeNode(
+        id="s3:bucket:my-bucket",
+        label="my-bucket",
+        node_type="bucket",
+        service="s3",
+        expandable=True,
+        metadata={"bucket_name": "my-bucket"},
+    )
+
+    plugin = S3Plugin()
+    children = plugin.get_children(session, bucket_node)
+
+    obj = next(c for c in children if c.node_type == "object")
+    assert obj.expandable is True
+    assert obj.metadata["versioning_enabled"] is True
+
+
+def test_bucket_children_keep_objects_leaf_when_versioning_off():
+    session = make_session()
+    client = session.client.return_value
+    client.get_bucket_versioning.return_value = {"Status": "Suspended"}
+    client.get_paginator.return_value.paginate.return_value = [
+        {"CommonPrefixes": [], "Contents": [{"Key": "readme.txt"}]}
+    ]
+
+    from awstui.models import TreeNode
+
+    bucket_node = TreeNode(
+        id="s3:bucket:my-bucket",
+        label="my-bucket",
+        node_type="bucket",
+        service="s3",
+        expandable=True,
+        metadata={"bucket_name": "my-bucket"},
+    )
+
+    plugin = S3Plugin()
+    children = plugin.get_children(session, bucket_node)
+
+    obj = next(c for c in children if c.node_type == "object")
+    assert obj.expandable is False
+
+
+def test_expanding_object_returns_version_children():
+    session = make_session()
+    client = session.client.return_value
+    client.get_bucket_versioning.return_value = {"Status": "Enabled"}
+    client.get_paginator.return_value.paginate.return_value = [
+        {
+            "Versions": [
+                {
+                    "Key": "readme.txt",
+                    "VersionId": "v2",
+                    "LastModified": "2026-04-12T14:03:00",
+                    "IsLatest": True,
+                    "Size": 1024,
+                },
+                {
+                    "Key": "readme.txt",
+                    "VersionId": "v1",
+                    "LastModified": "2026-02-01T00:00:00",
+                    "IsLatest": False,
+                    "Size": 256,
+                },
+            ],
+            "DeleteMarkers": [],
+        }
+    ]
+
+    from awstui.models import TreeNode
+
+    obj_node = TreeNode(
+        id="s3:object:my-bucket:readme.txt",
+        label="readme.txt",
+        node_type="object",
+        service="s3",
+        expandable=True,
+        metadata={
+            "bucket_name": "my-bucket",
+            "key": "readme.txt",
+            "versioning_enabled": True,
+        },
+    )
+
+    plugin = S3Plugin()
+    children = plugin.get_children(session, obj_node)
+
+    assert [c.node_type for c in children] == ["object_version", "object_version"]
+    assert children[0].metadata["version_id"] == "v2"
+    assert children[0].metadata["is_latest"] is True
+    assert children[0].expandable is False
+    # The label carries timestamp + "latest" tag.
+    assert "2026-04-12" in children[0].label
+    assert "latest" in children[0].label
+
+
+def test_has_content_true_for_version_but_false_for_delete_marker():
+    from awstui.models import TreeNode
+
+    plugin = S3Plugin()
+    version = TreeNode(
+        id="x",
+        label="x",
+        node_type="object_version",
+        service="s3",
+        expandable=False,
+        metadata={"is_delete_marker": False},
+    )
+    dm = TreeNode(
+        id="y",
+        label="y",
+        node_type="object_version",
+        service="s3",
+        expandable=False,
+        metadata={"is_delete_marker": True},
+    )
+    assert plugin.has_content(version) is True
+    assert plugin.has_content(dm) is False
+
+
+def test_get_content_for_version_passes_version_id():
+    session = make_session()
+    client = session.client.return_value
+    client.head_object.return_value = {
+        "ContentLength": 5,
+        "ContentType": "text/plain",
+    }
+    body_mock = MagicMock()
+    body_mock.read.return_value = b"hello"
+    client.get_object.return_value = {"Body": body_mock}
+
+    from awstui.models import TreeNode
+
+    node = TreeNode(
+        id="s3:object_version:my-bucket:readme.txt:v1",
+        label="v1",
+        node_type="object_version",
+        service="s3",
+        expandable=False,
+        metadata={
+            "bucket_name": "my-bucket",
+            "key": "readme.txt",
+            "version_id": "v1",
+            "is_latest": False,
+            "is_delete_marker": False,
+            "size": 5,
+            "last_modified": "2026-02-01T00:00:00",
+        },
+    )
+
+    plugin = S3Plugin()
+    preview = plugin.get_content(session, node)
+
+    assert preview is not None
+    assert preview.kind == "text"
+    assert preview.body == "hello"
+    # Both head_object and get_object should pass VersionId.
+    assert client.head_object.call_args.kwargs.get("VersionId") == "v1"
+    assert client.get_object.call_args.kwargs.get("VersionId") == "v1"
+
+
+def test_get_content_for_delete_marker_returns_message():
+    session = make_session()
+
+    from awstui.models import TreeNode
+
+    node = TreeNode(
+        id="s3:object_version:b:k:v1",
+        label="v1",
+        node_type="object_version",
+        service="s3",
+        expandable=False,
+        metadata={
+            "bucket_name": "b",
+            "key": "k",
+            "version_id": "v1",
+            "is_delete_marker": True,
+        },
+    )
+
+    plugin = S3Plugin()
+    preview = plugin.get_content(session, node)
+
+    assert preview is not None
+    assert preview.kind == "message"
+    assert "Delete marker" in preview.body
+    # No AWS calls for delete markers.
+    session.client.return_value.head_object.assert_not_called()
+    session.client.return_value.get_object.assert_not_called()
+
+
+def test_get_details_for_object_version():
+    session = make_session()
+    plugin = S3Plugin()
+
+    from awstui.models import TreeNode
+
+    node = TreeNode(
+        id="s3:object_version:my-bucket:readme.txt:v1",
+        label="v1",
+        node_type="object_version",
+        service="s3",
+        expandable=False,
+        metadata={
+            "bucket_name": "my-bucket",
+            "key": "readme.txt",
+            "version_id": "v1",
+            "is_latest": True,
+            "is_delete_marker": False,
+            "size": 1024,
+            "last_modified": "2026-04-12T14:03:00",
+        },
+    )
+
+    details = plugin.get_details(session, node)
+
+    assert details.subtitle == "arn:aws:s3:::my-bucket/readme.txt"
+    assert details.summary["Version ID"] == "v1"
+    assert details.summary["Status"] == "latest"
+    assert details.summary["URI"] == "s3://my-bucket/readme.txt?versionId=v1"
