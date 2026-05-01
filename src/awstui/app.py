@@ -155,6 +155,15 @@ class AWSBrowserApp(App):
         tree.focus()
 
     def on_node_selected(self, message: NodeSelected) -> None:
+        try:
+            self._handle_node_selected(message)
+        finally:
+            # The `a`/`u`/`r` footer entries depend on _current_raw /
+            # _current_subtitle / _current_node — refresh their visibility
+            # after any selection outcome.
+            self.refresh_bindings()
+
+    def _handle_node_selected(self, message: NodeSelected) -> None:
         detail = self.query_one("#detail-pane", DetailPane)
         tags = self.query_one("#tags-pane", TagsPane)
         node_data = message.node_data
@@ -250,6 +259,7 @@ class AWSBrowserApp(App):
         self._current_subtitle = ""
         self._current_node = None
         self._selection_seq += 1
+        self.refresh_bindings()
 
     def action_focus_region(self) -> None:
         try:
@@ -304,17 +314,38 @@ class AWSBrowserApp(App):
     def action_grow_pane(self) -> None:
         self._resize_focused_pane(self.PANE_RESIZE_STEP)
 
-    def action_copy_arn(self) -> None:
+    def check_action(self, action: str, parameters: tuple) -> bool | None:
+        """Hide copy bindings from the footer when the current selection
+        doesn't expose the thing they'd copy.
+
+        See https://textual.textualize.io/guide/actions#dynamic-actions
+        """
+        if action == "copy_arn":
+            return bool(self._current_arn())
+        if action == "copy_uri":
+            return bool(self._current_uri())
+        if action == "copy_raw":
+            return bool(self._current_raw)
+        return True
+
+    def _current_arn(self) -> str:
         arn = self._find_arn(self._current_raw)
         if not arn and self._current_subtitle.startswith("arn:"):
             arn = self._current_subtitle
+        return arn
+
+    def _current_uri(self) -> str:
+        return self._uri_for(self._current_node)
+
+    def action_copy_arn(self) -> None:
+        arn = self._current_arn()
         if not arn:
             self.notify("No ARN available for this resource", severity="warning")
             return
         self._copy_text(arn, f"Copied ARN: {arn}")
 
     def action_copy_uri(self) -> None:
-        uri = self._uri_for(self._current_node)
+        uri = self._current_uri()
         if not uri:
             self.notify("No URI available for this resource", severity="warning")
             return
@@ -669,3 +700,4 @@ class AWSBrowserApp(App):
         self._current_node = None
         self._selection_seq += 1
         self._current_container_node = None
+        self.refresh_bindings()

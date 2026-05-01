@@ -368,9 +368,10 @@ class S3Plugin(AWSServicePlugin):
                 summary_groups.append(("Versions", versions))
             return ResourceDetails(
                 title=f"S3 Object: {node.label}",
-                subtitle=f"s3://{bucket}/{key}",
+                subtitle=f"arn:aws:s3:::{bucket}/{key}",
                 summary={
                     "Key": key,
+                    "URI": f"s3://{bucket}/{key}",
                     "Size": str(head.get("ContentLength", "")),
                     "Content Type": head.get("ContentType", ""),
                     "Last Modified": str(head.get("LastModified", "")),

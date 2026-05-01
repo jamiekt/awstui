@@ -172,6 +172,43 @@ def test_uri_for_ecr_image_missing_repo_uri_returns_empty():
     assert AWSBrowserApp._uri_for(node) == ""
 
 
+def test_check_action_hides_copy_arn_when_no_arn():
+    app = AWSBrowserApp()
+    # Nothing selected
+    assert app.check_action("copy_arn", ()) is False
+    # Raw response with an ARN
+    app._current_raw = {"RoleArn": "arn:aws:iam::123:role/r"}
+    assert app.check_action("copy_arn", ()) is True
+    # Subtitle-based ARN fallback
+    app._current_raw = {}
+    app._current_subtitle = "arn:aws:s3:::my-bucket"
+    assert app.check_action("copy_arn", ()) is True
+
+
+def test_check_action_hides_copy_uri_when_no_uri():
+    app = AWSBrowserApp()
+    assert app.check_action("copy_uri", ()) is False
+    app._current_node = _node("bucket", bucket_name="my-bucket")
+    assert app.check_action("copy_uri", ()) is True
+    # Lambda functions don't have a URI -> still hidden
+    app._current_node = _node("function", function_name="f")
+    assert app.check_action("copy_uri", ()) is False
+
+
+def test_check_action_hides_copy_raw_when_no_raw():
+    app = AWSBrowserApp()
+    assert app.check_action("copy_raw", ()) is False
+    app._current_raw = {"something": 1}
+    assert app.check_action("copy_raw", ()) is True
+
+
+def test_check_action_passes_through_unrelated_actions():
+    app = AWSBrowserApp()
+    # Bindings we don't gate should stay visible.
+    assert app.check_action("filter_children", ()) is True
+    assert app.check_action("focus_nav", ()) is True
+
+
 def test_services_defaults_to_none():
     app = AWSBrowserApp()
     assert app._services is None
