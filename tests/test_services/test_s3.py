@@ -772,3 +772,57 @@ def test_get_details_for_object_version():
     assert details.summary["Version ID"] == "v1"
     assert details.summary["Status"] == "latest"
     assert details.summary["URI"] == "s3://my-bucket/readme.txt?versionId=v1"
+
+
+# ---------- SQL tab ----------
+
+
+def test_has_sql_true_for_parquet_and_csv_objects():
+    plugin = S3Plugin()
+    parquet = _object_node("data.parquet")
+    csv = _object_node("data.csv")
+    tsv = _object_node("data.tsv")
+    txt = _object_node("notes.txt")
+    assert plugin.has_sql(parquet) is True
+    assert plugin.has_sql(csv) is True
+    assert plugin.has_sql(tsv) is True
+    assert plugin.has_sql(txt) is False
+
+
+def test_has_sql_false_for_delete_marker_versions():
+    from awstui.models import TreeNode
+
+    plugin = S3Plugin()
+    version = TreeNode(
+        id="x",
+        label="x",
+        node_type="object_version",
+        service="s3",
+        expandable=False,
+        metadata={
+            "bucket_name": "b",
+            "key": "data.parquet",
+            "is_delete_marker": True,
+        },
+    )
+    assert plugin.has_sql(version) is False
+
+
+def test_default_sql_for_parquet_uses_read_parquet():
+    plugin = S3Plugin()
+    node = _object_node("data.parquet", bucket="my-bucket")
+    sql = plugin.default_sql(node)
+    assert sql == "SELECT *\nFROM read_parquet('s3://my-bucket/data.parquet')"
+
+
+def test_default_sql_for_csv_uses_read_csv_auto():
+    plugin = S3Plugin()
+    node = _object_node("data.csv", bucket="my-bucket")
+    sql = plugin.default_sql(node)
+    assert sql == "SELECT *\nFROM read_csv_auto('s3://my-bucket/data.csv')"
+
+
+def test_default_sql_returns_none_for_non_sql_object():
+    plugin = S3Plugin()
+    node = _object_node("notes.txt")
+    assert plugin.default_sql(node) is None

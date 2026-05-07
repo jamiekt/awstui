@@ -61,6 +61,21 @@ class AWSServicePlugin(ABC):
         """
         return None
 
+    def has_sql(self, node: TreeNode) -> bool:
+        """Fast check: does this node support an interactive SQL tab?
+
+        The app uses this to decide whether to include the SQL tab.
+        Must be cheap — no AWS calls.
+        """
+        return False
+
+    def default_sql(self, node: TreeNode) -> str | None:
+        """Return the SQL query to pre-populate the editor with.
+
+        Only called when `has_sql(node)` returned True.
+        """
+        return None
+
 
 class PluginRegistry:
     """Registry for discovered service plugins."""

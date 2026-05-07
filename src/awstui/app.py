@@ -29,6 +29,19 @@ def _get_version() -> str:
         return "unknown"
 
 
+_SQL_MAX_ROWS = 1000
+_SQL_MAX_COLUMNS = 100
+
+
+def _escape_sql(value: str) -> str:
+    """Escape single quotes for SQL string literal interpolation.
+
+    Used for the boto3 credentials passed to DuckDB's SET statements
+    (which don't accept parameter binding).
+    """
+    return value.replace("'", "''")
+
+
 class AWSBrowserApp(App):
     """AWS TUI Browser."""
 
@@ -99,6 +112,7 @@ class AWSBrowserApp(App):
         self._current_container_node: TreeNode | None = None
         self._tag_summary_seq: int = -1
         self._content_seq: int = -1
+        self._sql_seq: int = -1
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -235,16 +249,25 @@ class AWSBrowserApp(App):
         # placeholder *at mount time* and kick off a background count.
         is_container = not details.summary and node_data.expandable
         include_content = plugin.has_content(node_data)
+        include_sql = plugin.has_sql(node_data)
+        default_sql = plugin.default_sql(node_data) if include_sql else ""
         if is_container:
             detail.show_details(
                 details,
                 empty_summary_status="Retrieving count ...",
                 include_tag_summary=True,
                 include_content=include_content,
+                include_sql=include_sql,
+                default_sql=default_sql or "",
             )
             self._current_container_node = node_data
         else:
-            detail.show_details(details, include_content=include_content)
+            detail.show_details(
+                details,
+                include_content=include_content,
+                include_sql=include_sql,
+                default_sql=default_sql or "",
+            )
         self._current_raw = details.raw
         self._current_subtitle = details.subtitle
         tags.show_tags(details.raw)
@@ -647,6 +670,102 @@ class AWSBrowserApp(App):
             self.query_one("#detail-pane", DetailPane).set_content_status(message)
         except Exception:
             pass
+
+    # ----- SQL tab -----
+
+    def on_sql_submit(self, message) -> None:
+        """Run a query submitted from the SQL tab off-thread."""
+        self._sql_seq = self._selection_seq
+        sql_pane = self._sql_pane()
+        if sql_pane is not None:
+            sql_pane.set_running()
+        if self._session is None:
+            self._apply_sql_error(self._sql_seq, "No AWS session")
+            return
+        self._run_sql(message.query, self._session, self._sql_seq)
+
+    def _sql_pane(self):
+        try:
+            from awstui.widgets.sql_pane import SqlPaneContent
+
+            return self.query_one(SqlPaneContent)
+        except Exception:
+            return None
+
+    @work(thread=True, exclusive=True, group="sql")
+    def _run_sql(self, query: str, session: boto3.Session, seq: int) -> None:
+        try:
+            import duckdb  # lazy: heavy native dep
+        except ImportError:
+            self.call_from_thread(
+                self._apply_sql_error,
+                seq,
+                "duckdb is not installed — install it to use the SQL tab",
+            )
+            return
+
+        try:
+            credentials = session.get_credentials()
+            frozen = credentials.get_frozen_credentials() if credentials else None
+            region = session.region_name or "us-east-1"
+
+            con = duckdb.connect()
+            con.execute("INSTALL httpfs")
+            con.execute("LOAD httpfs")
+            con.execute(f"SET s3_region = '{_escape_sql(region)}'")
+            if frozen is not None:
+                con.execute(
+                    f"SET s3_access_key_id = '{_escape_sql(frozen.access_key)}'"
+                )
+                con.execute(
+                    f"SET s3_secret_access_key = '{_escape_sql(frozen.secret_key)}'"
+                )
+                if frozen.token:
+                    con.execute(f"SET s3_session_token = '{_escape_sql(frozen.token)}'")
+
+            cursor = con.execute(query)
+            description = cursor.description or []
+            columns = [d[0] for d in description]
+            rows = cursor.fetchmany(_SQL_MAX_ROWS + 1)
+            truncated = len(rows) > _SQL_MAX_ROWS
+            rows = rows[:_SQL_MAX_ROWS]
+            visible_columns = columns[:_SQL_MAX_COLUMNS]
+            visible_rows = [tuple(r[: len(visible_columns)]) for r in rows]
+        except Exception as e:
+            self.call_from_thread(
+                self._apply_sql_error, seq, f"{type(e).__name__}: {e}"
+            )
+            return
+
+        self.call_from_thread(
+            self._apply_sql_result,
+            seq,
+            visible_columns,
+            visible_rows,
+            truncated,
+            len(columns),
+        )
+
+    def _apply_sql_result(
+        self,
+        seq: int,
+        columns: list[str],
+        rows: list[tuple],
+        truncated: bool,
+        total_columns: int,
+    ) -> None:
+        if seq != self._selection_seq:
+            return
+        sql_pane = self._sql_pane()
+        if sql_pane is not None:
+            sql_pane.set_result(columns, rows, truncated, total_columns)
+
+    def _apply_sql_error(self, seq: int, message: str) -> None:
+        if seq != self._selection_seq:
+            return
+        sql_pane = self._sql_pane()
+        if sql_pane is not None:
+            sql_pane.set_error(message)
 
     def _find_arn(self, obj: object) -> str:
         """Recursively find an ARN in a raw API response.

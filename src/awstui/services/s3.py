@@ -61,6 +61,10 @@ _TEXTUAL_EXTENSIONS = {
     ".tf",
 }
 
+# Object extensions for which the SQL tab is offered.
+_SQL_EXTENSIONS = {".parquet", ".csv", ".tsv"}
+
+
 # Map content-type / extension to a Rich syntax lexer name.
 _LANGUAGE_MAP = {
     "application/json": "json",
@@ -545,6 +549,25 @@ class S3Plugin(AWSServicePlugin):
                 session, node, version_id=node.metadata["version_id"]
             )
         return None
+
+    def has_sql(self, node: TreeNode) -> bool:
+        if node.node_type not in ("object", "object_version"):
+            return False
+        if node.node_type == "object_version" and node.metadata.get("is_delete_marker"):
+            return False
+        return _extension(node.metadata.get("key", "")) in _SQL_EXTENSIONS
+
+    def default_sql(self, node: TreeNode) -> str | None:
+        if not self.has_sql(node):
+            return None
+        bucket = node.metadata["bucket_name"]
+        key = node.metadata["key"]
+        ext = _extension(key)
+        path = f"s3://{bucket}/{key}"
+        if ext == ".parquet":
+            return f"SELECT *\nFROM read_parquet('{path}')"
+        # .csv / .tsv — DuckDB's read_csv_auto handles both delimiters.
+        return f"SELECT *\nFROM read_csv_auto('{path}')"
 
 
 _MAX_VERSIONS_SHOWN = 100

@@ -24,6 +24,7 @@ dependencies = [
     "textual>=3.0",
     "boto3>=1.35",
     "pyperclip>=1.9",
+    "duckdb>=1.0",
 ]
 
 [project.urls]
@@ -42,7 +43,7 @@ build-backend = "hatchling.build"
 python_version = "3.12"
 
 [[tool.mypy.overrides]]
-module = ["boto3", "boto3.*", "botocore", "botocore.*", "pyperclip"]
+module = ["boto3", "boto3.*", "botocore", "botocore.*", "pyperclip", "duckdb"]
 ignore_missing_imports = true
 
 [dependency-groups]

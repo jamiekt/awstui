@@ -223,3 +223,11 @@ def test_empty_services_list_means_all():
     # Empty list is falsy, so the app treats it as "no filter".
     app = AWSBrowserApp(services=[])
     assert app._services is None
+
+
+def test_escape_sql_doubles_single_quotes():
+    from awstui.app import _escape_sql
+
+    assert _escape_sql("plain") == "plain"
+    assert _escape_sql("it's") == "it''s"
+    assert _escape_sql("a'b'c") == "a''b''c"

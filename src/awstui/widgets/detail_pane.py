@@ -168,6 +168,8 @@ class DetailPane(Static, can_focus=True):
         empty_summary_status: str = "No summary available",
         include_tag_summary: bool = False,
         include_content: bool = False,
+        include_sql: bool = False,
+        default_sql: str = "",
     ) -> None:
         """Display resource details with Summary, Raw JSON, and optional tabs.
 
@@ -225,6 +227,14 @@ class DetailPane(Static, can_focus=True):
                     classes="tag-summary-status",
                 )
             )
+
+        if include_sql:
+            from awstui.widgets.sql_pane import SqlPaneContent
+
+            sql_pane = TabPane("SQL", id="tab-sql")
+            tabbed.add_pane(sql_pane)
+            available_tab_ids.add("tab-sql")
+            sql_pane.mount(SqlPaneContent(initial_query=default_sql))
 
         # Re-activate the previous tab if the new selection also exposes it.
         # tabbed.add_pane is asynchronous — the panes aren't wired up yet,
