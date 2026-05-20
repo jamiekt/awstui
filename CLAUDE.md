@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 uv run awstui                              # Run the app
 uv run awstui --profile my-profile         # Run with a specific AWS profile
+uv run awstui --service s3 --service lambda  # Restrict services shown in the tree
 uv run pytest tests/ -v                    # Run all tests
 uv run pytest tests/test_services/test_s3.py -v                      # Single test file
 uv run pytest tests/test_services/test_s3.py::test_get_root_nodes -v # Single test
@@ -44,6 +45,8 @@ Async work (child count, tag summary) uses `_selection_seq` / `_tag_summary_seq`
 
 `AWSBrowserApp` tracks the currently selected resource via `_current_raw` (the raw boto3 response), `_current_subtitle` (usually an ARN), and `_current_node` (the `TreeNode` itself). These power the `a`/`u`/`r` hotkeys — for example, `action_copy_uri` reads `_current_node.metadata` to build S3 / ECR URIs without calling AWS again. Reset all three together on error and on region change.
 
+The detail pane's active tab is preserved across nav selections — don't force it back to a default tab when rebuilding contents.
+
 ### Data flow
 
 `TreeNode.metadata` carries context (bucket names, ARNs, repository_uri, etc.) through the tree so child/detail fetches don't need to re-query. When a parent fetches children, propagate any metadata the children will need — e.g. ECR image children inherit `repository_uri` from their repo parent.
@@ -67,6 +70,10 @@ boto3 calls in `nav_tree.py` and `app.py` catch `ClientError`. Access denied is 
 ### Testing
 
 Service plugins are tested by mocking `boto3.Session` with `MagicMock`. Pattern: `session.client.return_value.some_api.return_value = {...}`. When adding an API call to an existing plugin, any test that already stubs `describe_*` must also stub the new call — a `MagicMock` will return another `MagicMock` rather than raising, so forgotten stubs fail silently with weird behaviour downstream. App tests use Textual's async `run_test()` pilot. No real AWS credentials needed.
+
+### SQL pane (DuckDB)
+
+`widgets/sql_pane.py` hosts a query editor + `DataTable` inside the detail pane's `tab-sql` `TabPane`. It posts `SqlSubmit` messages on Ctrl+Enter / Submit; the app runs DuckDB off-thread and calls back via `set_result` / `set_error`. The editor uses `TextArea.code_editor(language="sql")`, which requires the `textual[syntax]` extra.
 
 ### Specs and plans
 
