@@ -194,8 +194,11 @@ class AWSBrowserApp(App):
             return
 
         self._selection_seq += 1
+        seq = self._selection_seq
         self._current_container_node = None
         self._current_node = node_data
+        self._current_raw = {}
+        self._current_subtitle = ""
 
         if node_data.node_type == "service":
             resource_details = ResourceDetails(
@@ -210,70 +213,27 @@ class AWSBrowserApp(App):
                     empty_summary_status="Retrieving count ...",
                     include_tag_summary=True,
                 )
-                self._current_raw = {}
                 self._current_container_node = node_data
-                self._load_child_count(node_data, self._selection_seq)
+                self._load_child_count(node_data, seq)
             else:
                 detail.show_details(resource_details)
-                self._current_raw = {}
-            self._current_subtitle = ""
             tags.show_placeholder()
             return
 
-        try:
-            details = plugin.get_details(self._session, node_data)
-        except ClientError as e:
-            error_code = e.response["Error"].get("Code", "")
-            if error_code in (
-                "AccessDenied",
-                "AccessDeniedException",
-                "UnauthorizedAccess",
-            ):
-                detail.show_error(
-                    f"Access Denied: insufficient permissions to view {node_data.label}"
-                )
-            else:
-                detail.show_error(f"Error loading details: {e}")
-            tags.show_placeholder()
-            self._current_raw = {}
-            self._current_subtitle = ""
-            return
-        except Exception as e:
-            detail.show_error(f"Error loading details: {e}")
-            tags.show_placeholder()
-            self._current_raw = {}
-            self._current_subtitle = ""
-            return
-
-        # For container nodes (no summary of their own), show a fetching
-        # placeholder *at mount time* and kick off a background count.
-        is_container = not details.summary and node_data.expandable
-        include_content = plugin.has_content(node_data)
-        include_sql = plugin.has_sql(node_data)
-        default_sql = plugin.default_sql(node_data) if include_sql else ""
-        if is_container:
-            detail.show_details(
-                details,
-                empty_summary_status="Retrieving count ...",
-                include_tag_summary=True,
-                include_content=include_content,
-                include_sql=include_sql,
-                default_sql=default_sql or "",
-            )
-            self._current_container_node = node_data
-        else:
-            detail.show_details(
-                details,
-                include_content=include_content,
-                include_sql=include_sql,
-                default_sql=default_sql or "",
-            )
-        self._current_raw = details.raw
-        self._current_subtitle = details.subtitle
-        tags.show_tags(details.raw)
-
-        if is_container:
-            self._load_child_count(node_data, self._selection_seq)
+        # plugin.get_details makes AWS calls (e.g. get_bucket_location,
+        # get_bucket_tagging) which can each take 100ms+. Doing it off-thread
+        # keeps arrow-key navigation snappy. Show a placeholder immediately
+        # so the user gets feedback, then render the real details when they
+        # land — with seq check to drop stale results from rapid navigation.
+        loading = ResourceDetails(
+            title=node_data.label,
+            subtitle="Loading ...",
+            summary={},
+            raw={},
+        )
+        detail.show_details(loading, empty_summary_status="Loading details ...")
+        tags.show_placeholder()
+        self._load_details(node_data, seq)
 
     def on_node_error(self, message: NodeError) -> None:
         self.query_one("#detail-pane", DetailPane).show_error(message.error_message)
@@ -477,6 +437,84 @@ class AWSBrowserApp(App):
         if word.endswith(("s", "x", "z", "ch", "sh")):
             return word + "es"
         return word + "s"
+
+    @work(thread=True, exclusive=True, group="details")
+    def _load_details(self, node: TreeNode, seq: int) -> None:
+        plugin = (
+            self._plugin_registry.get(node.service) if self._plugin_registry else None
+        )
+        if plugin is None or self._session is None:
+            return
+        try:
+            details = plugin.get_details(self._session, node)
+        except ClientError as e:
+            error_code = e.response["Error"].get("Code", "")
+            if error_code in (
+                "AccessDenied",
+                "AccessDeniedException",
+                "UnauthorizedAccess",
+            ):
+                msg = f"Access Denied: insufficient permissions to view {node.label}"
+            else:
+                msg = f"Error loading details: {e}"
+            self.call_from_thread(self._apply_details_error, seq, msg)
+            return
+        except Exception as e:
+            self.call_from_thread(
+                self._apply_details_error, seq, f"Error loading details: {e}"
+            )
+            return
+        self.call_from_thread(self._apply_details, seq, node, details)
+
+    def _apply_details(
+        self, seq: int, node: TreeNode, details: ResourceDetails
+    ) -> None:
+        if seq != self._selection_seq:
+            return
+        detail = self.query_one("#detail-pane", DetailPane)
+        tags = self.query_one("#tags-pane", TagsPane)
+
+        plugin = (
+            self._plugin_registry.get(node.service) if self._plugin_registry else None
+        )
+        is_container = not details.summary and node.expandable
+        include_content = plugin.has_content(node) if plugin else False
+        include_sql = plugin.has_sql(node) if plugin else False
+        default_sql = plugin.default_sql(node) if (plugin and include_sql) else ""
+
+        if is_container:
+            detail.show_details(
+                details,
+                empty_summary_status="Retrieving count ...",
+                include_tag_summary=True,
+                include_content=include_content,
+                include_sql=include_sql,
+                default_sql=default_sql or "",
+            )
+            self._current_container_node = node
+        else:
+            detail.show_details(
+                details,
+                include_content=include_content,
+                include_sql=include_sql,
+                default_sql=default_sql or "",
+            )
+        self._current_raw = details.raw
+        self._current_subtitle = details.subtitle
+        tags.show_tags(details.raw)
+        self.refresh_bindings()
+
+        if is_container:
+            self._load_child_count(node, seq)
+
+    def _apply_details_error(self, seq: int, message: str) -> None:
+        if seq != self._selection_seq:
+            return
+        self.query_one("#detail-pane", DetailPane).show_error(message)
+        self.query_one("#tags-pane", TagsPane).show_placeholder()
+        self._current_raw = {}
+        self._current_subtitle = ""
+        self.refresh_bindings()
 
     @work(thread=True, exclusive=True, group="child_count")
     def _load_child_count(self, node: TreeNode, seq: int) -> None:
