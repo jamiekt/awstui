@@ -231,3 +231,33 @@ def test_escape_sql_doubles_single_quotes():
     assert _escape_sql("plain") == "plain"
     assert _escape_sql("it's") == "it''s"
     assert _escape_sql("a'b'c") == "a''b''c"
+
+
+def test_size_suffix_in_progress_and_done():
+    from awstui.app import _size_suffix
+
+    assert _size_suffix(1024, done=False) == " (⋯ 1.0 KB)"
+    assert _size_suffix(1024, done=True) == " (1.0 KB)"
+
+
+def test_check_action_hides_toggle_size_when_unsupported():
+    from awstui.plugin import PluginRegistry
+    from awstui.services.s3 import S3Plugin
+
+    app = AWSBrowserApp()
+    registry = PluginRegistry()
+    registry.register(S3Plugin())
+    app._plugin_registry = registry
+
+    # Nothing selected -> hidden.
+    assert app.check_action("toggle_size", ()) is False
+    # A bucket -> shown.
+    bucket_node = _node("bucket", bucket_name="b")
+    bucket_node.service = "s3"
+    app._current_node = bucket_node
+    assert app.check_action("toggle_size", ()) is True
+    # A category -> hidden.
+    category_node = _node("category", category="general_purpose_buckets")
+    category_node.service = "s3"
+    app._current_node = category_node
+    assert app.check_action("toggle_size", ()) is False
