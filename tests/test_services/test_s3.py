@@ -924,3 +924,75 @@ def test_iter_size_object_missing_size_yields_zero():
 
     plugin = S3Plugin()
     assert list(plugin.iter_size(session, node)) == [0]
+
+
+def test_iter_size_bucket_yields_cumulative_total_per_page():
+    from awstui.models import TreeNode
+
+    session = make_session()
+    client = session.client.return_value
+    client.get_paginator.return_value.paginate.return_value = [
+        {"Contents": [{"Key": "a", "Size": 100}, {"Key": "b", "Size": 200}]},
+        {"Contents": [{"Key": "c/d", "Size": 50}]},
+    ]
+
+    node = TreeNode(
+        id="s3:bucket:b",
+        label="b",
+        node_type="bucket",
+        service="s3",
+        expandable=True,
+        metadata={"bucket_name": "b"},
+    )
+
+    plugin = S3Plugin()
+    totals = list(plugin.iter_size(session, node))
+
+    assert totals == [300, 350]
+
+
+def test_iter_size_prefix_walks_recursively_without_delimiter():
+    from awstui.models import TreeNode
+
+    session = make_session()
+    client = session.client.return_value
+    client.get_paginator.return_value.paginate.return_value = [
+        {"Contents": [{"Key": "logs/2026/a", "Size": 10}]},
+    ]
+
+    node = TreeNode(
+        id="s3:prefix:b:logs/",
+        label="logs/",
+        node_type="prefix",
+        service="s3",
+        expandable=True,
+        metadata={"bucket_name": "b", "prefix": "logs/"},
+    )
+
+    plugin = S3Plugin()
+    totals = list(plugin.iter_size(session, node))
+
+    assert totals == [10]
+    client.get_paginator.return_value.paginate.assert_called_once_with(
+        Bucket="b", Prefix="logs/"
+    )
+
+
+def test_iter_size_empty_bucket_yields_zero():
+    from awstui.models import TreeNode
+
+    session = make_session()
+    client = session.client.return_value
+    client.get_paginator.return_value.paginate.return_value = [{}]
+
+    node = TreeNode(
+        id="s3:bucket:b",
+        label="b",
+        node_type="bucket",
+        service="s3",
+        expandable=True,
+        metadata={"bucket_name": "b"},
+    )
+
+    plugin = S3Plugin()
+    assert list(plugin.iter_size(session, node)) == [0]
