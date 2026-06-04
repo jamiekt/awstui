@@ -524,9 +524,11 @@ class S3Plugin(AWSServicePlugin):
     def supports_size(self, node: TreeNode) -> bool:
         return node.node_type in ("bucket", "prefix", "object")
 
-    def iter_size(self, session: boto3.Session, node: TreeNode) -> Iterator[int]:
+    def iter_size(
+        self, session: boto3.Session, node: TreeNode
+    ) -> Iterator[tuple[int, int]]:
         if node.node_type == "object":
-            yield int(node.metadata.get("size") or 0)
+            yield int(node.metadata.get("size") or 0), 1
             return
         # bucket / prefix recursive walk
         client = session.client("s3")
@@ -534,10 +536,12 @@ class S3Plugin(AWSServicePlugin):
         prefix = node.metadata.get("prefix", "")
         paginator = client.get_paginator("list_objects_v2")
         total = 0
+        count = 0
         for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
             for obj in page.get("Contents", []):
                 total += obj.get("Size", 0)
-            yield total
+                count += 1
+            yield total, count
 
     def has_content(self, node: TreeNode) -> bool:
         if node.node_type == "object":
