@@ -41,6 +41,12 @@ A node is treated as a "container" when its `get_details()` returns `summary={}`
 
 `plugin.get_details()` is **not** called on the UI thread. `on_node_selected` shows a "Loading ..." placeholder immediately, then spawns `_load_details` as a thread worker; the result is rendered back on the UI thread via `_apply_details` (or `_apply_details_error`). This keeps arrow-key navigation snappy when a plugin's `get_details` makes several AWS calls per selection (e.g. S3's `get_bucket_location` + `get_bucket_tagging`). The container-count / content / tag-summary / SQL workers are all dispatched from `_apply_details`, not from the selection handler. The `service`-node path stays synchronous since it makes no AWS call.
 
+### Node size calculation
+
+The `s` hotkey toggles recursive size calculation for the highlighted node, shown in its tree label as `name (1.2 GB)` (or `name (⋯ 1.2 GB)` while still climbing). It is gated by the generic, opt-in plugin seam `supports_size(node)` / `iter_size(session, node)` — `iter_size` is a generator yielding the cumulative byte total, one yield per chunk of work (S3 yields once per `list_objects_v2` page). Only S3 implements it today (bucket / prefix / object); objects read their size from `metadata["size"]` stashed during the children walk, so no AWS call is needed.
+
+The app owns the orchestration: `_size_base_labels` / `_size_workers` (both keyed by `id(textual_node)`) track which nodes are sized, one non-exclusive `@work(thread=True, group="size")` worker per node updates the label via `call_from_thread`, and the worker checks `get_current_worker().is_cancelled` between yields. Toggling a node off cascades to descendants it turned on; expanding a sized node cascades sizing to its new children. Region switch / tree reset calls `_cancel_all_sizes`. Sizes live on tree labels (not the detail pane), so they are independent of the `_selection_seq` machinery.
+
 ### Stale-result protection
 
 Async work (detail load, child count, tag summary, content, SQL) uses `_selection_seq` / `_tag_summary_seq` / `_content_seq` / `_sql_seq` counters. Every new selection increments `_selection_seq`; background workers capture it at start and their UI callbacks drop the result if it no longer matches (the user has navigated on). Workers use `@work(thread=True, exclusive=True, group=...)` so a new dispatch supersedes the in-flight one. When adding new background work, follow the same pattern.

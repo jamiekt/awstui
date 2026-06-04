@@ -181,7 +181,7 @@ wheels = [
 
 [[package]]
 name = "awstui"
-version = "0.19"
+version = "0.20"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
