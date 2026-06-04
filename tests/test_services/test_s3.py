@@ -858,3 +858,32 @@ def test_object_children_store_size_in_metadata():
     objects = [c for c in children if c.node_type == "object"]
     assert objects[0].metadata["size"] == 123
     assert objects[1].metadata["size"] == 456
+
+
+def test_supports_size_true_for_bucket_prefix_object():
+    from awstui.models import TreeNode
+
+    plugin = S3Plugin()
+    for node_type in ("bucket", "prefix", "object"):
+        node = TreeNode(
+            id="x", label="x", node_type=node_type, service="s3", expandable=True
+        )
+        assert plugin.supports_size(node) is True
+
+
+def test_supports_size_false_for_other_node_types():
+    from awstui.models import TreeNode
+
+    plugin = S3Plugin()
+    for node_type in (
+        "category",
+        "directory_bucket",
+        "table_bucket",
+        "vector_bucket",
+        "access_point",
+        "object_version",
+    ):
+        node = TreeNode(
+            id="x", label="x", node_type=node_type, service="s3", expandable=False
+        )
+        assert plugin.supports_size(node) is False
