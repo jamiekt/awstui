@@ -5,6 +5,7 @@ from botocore.exceptions import ClientError
 
 from awstui.models import ContentPreview, ResourceDetails, TreeNode
 from awstui.plugin import AWSServicePlugin
+from awstui.util import human_bytes
 
 # Maximum number of bytes of object content to fetch for preview.
 _CONTENT_PREVIEW_MAX_BYTES = 1_000_000
@@ -136,15 +137,6 @@ def _extension(key: str) -> str:
     if dot == -1 or dot < slash:
         return ""
     return key[dot:].lower()
-
-
-def _human_bytes(n: int) -> str:
-    size: float = float(n)
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if size < 1024 or unit == "TB":
-            return f"{n} {unit}" if unit == "B" else f"{size:.1f} {unit}"
-        size /= 1024
-    return f"{size} B"
 
 
 class S3Plugin(AWSServicePlugin):
@@ -596,7 +588,7 @@ def _preview_s3_object(
         return ContentPreview(
             kind="binary",
             body=(
-                f"Binary content · {_human_bytes(size)} · "
+                f"Binary content · {human_bytes(size)} · "
                 f"{content_type or 'unknown content-type'}"
             ),
             size=size,
@@ -721,7 +713,7 @@ def _format_version_records(records: list[dict]) -> dict[str, str]:
         parts: list[str] = [record["last_modified"]]
         size = record["size"]
         if size is not None:
-            parts.append(_human_bytes(int(size)))
+            parts.append(human_bytes(int(size)))
         tags: list[str] = []
         if record["is_latest"]:
             tags.append("latest")
