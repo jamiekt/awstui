@@ -336,3 +336,61 @@ def test_size_off_cascades_to_sized_descendants():
     for n in (parent, child, grandchild):
         assert id(n) not in app._size_base_labels
         assert id(n) not in app._size_workers
+
+
+def test_expand_cascade_sizes_supported_children(monkeypatch):
+    from awstui.plugin import PluginRegistry
+    from awstui.services.s3 import S3Plugin
+
+    app = AWSBrowserApp()
+    registry = PluginRegistry()
+    registry.register(S3Plugin())
+    app._plugin_registry = registry
+
+    # Record _size_on calls instead of spawning real workers.
+    started = []
+    monkeypatch.setattr(app, "_size_on", lambda node: started.append(node))
+
+    prefix_data = _node("prefix", bucket_name="b", prefix="logs/")
+    prefix_data.service = "s3"
+    object_data = _node("object", bucket_name="b", key="logs/a", size=1)
+    object_data.service = "s3"
+    version_data = _node("object_version", bucket_name="b", key="logs/a")
+    version_data.service = "s3"
+
+    child_prefix = _FakeNode("logs/", data=prefix_data)
+    child_object = _FakeNode("a", data=object_data)
+    child_version = _FakeNode("v1", data=version_data)  # unsupported
+    parent_data = _node("bucket", bucket_name="b")
+    parent_data.service = "s3"
+    parent = _FakeNode(
+        "b",
+        data=parent_data,
+        children=[child_prefix, child_object, child_version],
+    )
+    # Parent is currently sized.
+    app._size_base_labels[id(parent)] = "b"
+
+    class _Event:
+        node = parent
+
+    app.on_tree_node_expanded(_Event())
+
+    # Supported children cascade; the object_version child does not.
+    assert child_prefix in started
+    assert child_object in started
+    assert child_version not in started
+
+
+def test_expand_cascade_noop_when_parent_not_sized(monkeypatch):
+    app = AWSBrowserApp()
+    started = []
+    monkeypatch.setattr(app, "_size_on", lambda node: started.append(node))
+
+    parent = _FakeNode("b", children=[_FakeNode("c", data=_node("prefix"))])
+
+    class _Event:
+        node = parent
+
+    app.on_tree_node_expanded(_Event())
+    assert started == []

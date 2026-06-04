@@ -259,6 +259,24 @@ class AWSBrowserApp(App):
         self._selection_seq += 1
         self.refresh_bindings()
 
+    def on_tree_node_expanded(self, event) -> None:
+        """When a sized node is expanded, cascade sizing to its children.
+
+        Bubbles up after AWSNavTree.on_tree_node_expanded has synchronously
+        added the children, so they are present here. Each child that is
+        sizeable and not already sized gets turned on.
+        """
+        node = event.node
+        if id(node) not in self._size_base_labels:
+            return
+        for child in node.children:
+            if id(child) in self._size_base_labels:
+                continue
+            data = getattr(child, "data", None)
+            if data is None or not self._size_supported(data):
+                continue
+            self._size_on(child)
+
     def action_focus_region(self) -> None:
         try:
             self.query_one(RegionSelector).focus()
