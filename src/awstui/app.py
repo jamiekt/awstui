@@ -11,6 +11,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Static, TabbedContent, TabPane
 from textual import work
+from textual.worker import get_current_worker
 
 from awstui.models import ContentPreview, ResourceDetails, TreeNode
 from awstui.plugin import PluginRegistry
@@ -462,6 +463,82 @@ class AWSBrowserApp(App):
             return False
         plugin = self._plugin_registry.get(node.service)
         return bool(plugin and plugin.supports_size(node))
+
+    _SIZE_UNAVAILABLE_SUFFIX = " (size unavailable)"
+
+    def action_toggle_size(self) -> None:
+        tree = self.query_one(AWSNavTree)
+        node = tree.cursor_node
+        if node is None or node.data is None:
+            return
+        if not self._size_supported(node.data):
+            self.notify("Size not available for this node", severity="warning")
+            return
+        if id(node) in self._size_base_labels:
+            self._size_off(node)
+        else:
+            self._size_on(node)
+
+    def _size_on(self, node) -> None:
+        """Start sizing `node`: record its base label and spawn a worker."""
+        base = str(node.label)
+        self._size_base_labels[id(node)] = base
+        node.set_label(base + " (⋯)")
+        self._size_workers[id(node)] = self._size_worker(node, node.data)
+
+    def _size_off(self, node) -> None:
+        """Stop sizing `node` and every descendant it cascaded to."""
+        for descendant in list(self._iter_sized_descendants(node)):
+            self._cancel_size(descendant)
+        self._cancel_size(node)
+
+    def _cancel_size(self, node) -> None:
+        worker = self._size_workers.pop(id(node), None)
+        if worker is not None:
+            worker.cancel()
+        base = self._size_base_labels.pop(id(node), None)
+        if base is not None:
+            node.set_label(base)
+
+    def _iter_sized_descendants(self, node):
+        """Yield textual descendants of `node` that are currently sized."""
+        for child in getattr(node, "children", []):
+            if id(child) in self._size_base_labels:
+                yield child
+            yield from self._iter_sized_descendants(child)
+
+    def _set_node_size(self, node, total: int, done: bool) -> None:
+        base = self._size_base_labels.get(id(node))
+        if base is None:
+            # Toggled off (or region-switched) while the walk was in flight.
+            return
+        node.set_label(base + _size_suffix(total, done))
+
+    def _set_node_size_unavailable(self, node) -> None:
+        base = self._size_base_labels.get(id(node))
+        if base is None:
+            return
+        node.set_label(base + self._SIZE_UNAVAILABLE_SUFFIX)
+
+    @work(thread=True, group="size")
+    def _size_worker(self, node, data: TreeNode) -> None:
+        plugin = (
+            self._plugin_registry.get(data.service) if self._plugin_registry else None
+        )
+        if plugin is None or self._session is None:
+            return
+        worker = get_current_worker()
+        total = 0
+        try:
+            for total in plugin.iter_size(self._session, data):
+                if worker.is_cancelled:
+                    return
+                self.call_from_thread(self._set_node_size, node, total, False)
+            self.call_from_thread(self._set_node_size, node, total, True)
+        except ClientError:
+            self.call_from_thread(self._set_node_size_unavailable, node)
+        except Exception:
+            self.call_from_thread(self._set_node_size_unavailable, node)
 
     @work(thread=True, exclusive=True, group="details")
     def _load_details(self, node: TreeNode, seq: int) -> None:
