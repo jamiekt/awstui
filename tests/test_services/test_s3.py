@@ -887,3 +887,40 @@ def test_supports_size_false_for_other_node_types():
             id="x", label="x", node_type=node_type, service="s3", expandable=False
         )
         assert plugin.supports_size(node) is False
+
+
+def test_iter_size_object_yields_metadata_size_once():
+    from awstui.models import TreeNode
+
+    session = make_session()
+    node = TreeNode(
+        id="s3:object:b:k",
+        label="k",
+        node_type="object",
+        service="s3",
+        expandable=False,
+        metadata={"bucket_name": "b", "key": "k", "size": 789},
+    )
+
+    plugin = S3Plugin()
+    totals = list(plugin.iter_size(session, node))
+
+    assert totals == [789]
+    session.client.return_value.get_paginator.assert_not_called()
+
+
+def test_iter_size_object_missing_size_yields_zero():
+    from awstui.models import TreeNode
+
+    session = make_session()
+    node = TreeNode(
+        id="s3:object:b:k",
+        label="k",
+        node_type="object",
+        service="s3",
+        expandable=False,
+        metadata={"bucket_name": "b", "key": "k", "size": None},
+    )
+
+    plugin = S3Plugin()
+    assert list(plugin.iter_size(session, node)) == [0]
