@@ -513,6 +513,17 @@ class AWSBrowserApp(App):
             self._cancel_size(descendant)
         self._cancel_size(node)
 
+    def _cancel_all_sizes(self) -> None:
+        """Cancel every in-flight size walk and forget all size state.
+
+        Called on region switch / tree reset — computed sizes are
+        meaningless against a new session, and the tree nodes are gone.
+        """
+        for worker in self._size_workers.values():
+            worker.cancel()
+        self._size_workers.clear()
+        self._size_base_labels.clear()
+
     def _cancel_size(self, node) -> None:
         worker = self._size_workers.pop(id(node), None)
         if worker is not None:
@@ -980,4 +991,5 @@ class AWSBrowserApp(App):
         self._current_node = None
         self._selection_seq += 1
         self._current_container_node = None
+        self._cancel_all_sizes()
         self.refresh_bindings()

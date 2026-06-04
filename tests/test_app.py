@@ -394,3 +394,117 @@ def test_expand_cascade_noop_when_parent_not_sized(monkeypatch):
 
     app.on_tree_node_expanded(_Event())
     assert started == []
+
+
+def test_cancel_all_sizes_clears_workers_and_labels():
+    app = AWSBrowserApp()
+    n1 = _FakeNode("a")
+    n2 = _FakeNode("b")
+    w1, w2 = _FakeWorker(), _FakeWorker()
+    app._size_base_labels[id(n1)] = "a"
+    app._size_base_labels[id(n2)] = "b"
+    app._size_workers[id(n1)] = w1
+    app._size_workers[id(n2)] = w2
+
+    app._cancel_all_sizes()
+
+    assert w1.cancelled and w2.cancelled
+    assert app._size_base_labels == {}
+    assert app._size_workers == {}
+
+
+@pytest.mark.asyncio
+async def test_pressing_s_shows_size_in_label_end_to_end():
+    """Press `s` on a bucket node and confirm the label gains a size.
+
+    DetailPane.show_details mounts a TabbedContent and synchronously calls
+    add_pane on it in the same frame; under the test pilot the TabbedContent
+    isn't composed yet, so add_pane raises NoMatches(ContentTabs). That is a
+    pre-existing harness limitation of the detail pane (reproducible on main,
+    and never previously exercised because no pilot test selected a node) and
+    is orthogonal to the size feature. We patch the detail-pane render to a
+    no-op so this test exercises only the size path: key press -> action ->
+    worker -> label update.
+    """
+    from awstui.models import TreeNode
+    from awstui.plugin import AWSServicePlugin
+    from awstui.widgets.detail_pane import DetailPane
+    from awstui.widgets.nav_tree import AWSNavTree
+
+    class FakeSizePlugin(AWSServicePlugin):
+        @property
+        def name(self):
+            return "Fake"
+
+        @property
+        def service_name(self):
+            return "fake"
+
+        def get_root_nodes(self, session):
+            return [
+                TreeNode(
+                    id="fake:bucket:b",
+                    label="b",
+                    node_type="bucket",
+                    service="fake",
+                    expandable=False,
+                    metadata={"bucket_name": "b"},
+                )
+            ]
+
+        def get_children(self, session, node):
+            return []
+
+        def get_details(self, session, node):
+            from awstui.models import ResourceDetails
+
+            return ResourceDetails(
+                title="b", subtitle="s3://b", summary={"Name": "b"}, raw={}
+            )
+
+        def supports_size(self, node):
+            return node.node_type == "bucket"
+
+        def iter_size(self, session, node):
+            yield 500
+            yield 1024
+
+    with (
+        patch("awstui.app.boto3") as mock_boto3,
+        patch.object(DetailPane, "show_details"),
+        patch.object(DetailPane, "show_placeholder"),
+    ):
+        mock_session = MagicMock()
+        mock_session.region_name = "us-east-1"
+        mock_boto3.Session.return_value = mock_session
+
+        app = AWSBrowserApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            # Replace discovered plugins with our fake, rebuild the tree.
+            from awstui.plugin import PluginRegistry
+
+            registry = PluginRegistry()
+            registry.register(FakeSizePlugin())
+            app._plugin_registry = registry
+            app._session = mock_session
+
+            tree = app.query_one(AWSNavTree)
+            tree._plugins = {"fake": FakeSizePlugin()}
+            tree.session = mock_session
+            tree.reset_tree()
+            await pilot.pause()
+
+            # Expand the service node to reveal the bucket, select it.
+            service_node = tree.root.children[0]
+            service_node.expand()
+            await pilot.pause()
+            bucket_node = service_node.children[0]
+            tree.focus()
+            tree.select_node(bucket_node)
+            await pilot.pause()
+
+            await pilot.press("s")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            assert "1.0 KB" in str(bucket_node.label)
