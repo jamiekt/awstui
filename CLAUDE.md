@@ -37,9 +37,13 @@ To add a new service: create a new file in `services/`, implement the ABC, set `
 
 A node is treated as a "container" when its `get_details()` returns `summary={}` but `expandable=True`. For these, `on_node_selected` shows the detail pane with an "Retrieving count ..." placeholder and spawns `_load_child_count` as a thread worker. It calls `get_children` and derives a noun (e.g. "buckets") from the first child's `node_type`. This is how category nodes get their counts without each plugin having to implement one.
 
+### Async detail loading
+
+`plugin.get_details()` is **not** called on the UI thread. `on_node_selected` shows a "Loading ..." placeholder immediately, then spawns `_load_details` as a thread worker; the result is rendered back on the UI thread via `_apply_details` (or `_apply_details_error`). This keeps arrow-key navigation snappy when a plugin's `get_details` makes several AWS calls per selection (e.g. S3's `get_bucket_location` + `get_bucket_tagging`). The container-count / content / tag-summary / SQL workers are all dispatched from `_apply_details`, not from the selection handler. The `service`-node path stays synchronous since it makes no AWS call.
+
 ### Stale-result protection
 
-Async work (child count, tag summary) uses `_selection_seq` / `_tag_summary_seq` counters. Every new selection increments `_selection_seq`; background workers compare the seq they captured at start against the current one and drop their result if stale. When adding new background work, follow the same pattern.
+Async work (detail load, child count, tag summary, content, SQL) uses `_selection_seq` / `_tag_summary_seq` / `_content_seq` / `_sql_seq` counters. Every new selection increments `_selection_seq`; background workers capture it at start and their UI callbacks drop the result if it no longer matches (the user has navigated on). Workers use `@work(thread=True, exclusive=True, group=...)` so a new dispatch supersedes the in-flight one. When adding new background work, follow the same pattern.
 
 ### App-level state
 
