@@ -519,6 +519,9 @@ class S3Plugin(AWSServicePlugin):
 
         return ResourceDetails(title=node.label, subtitle="", summary={}, raw={})
 
+    def supports_size(self, node: TreeNode) -> bool:
+        return node.node_type in ("bucket", "prefix", "object")
+
     def has_content(self, node: TreeNode) -> bool:
         if node.node_type == "object":
             return True
