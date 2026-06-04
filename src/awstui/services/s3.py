@@ -338,6 +338,7 @@ class S3Plugin(AWSServicePlugin):
                         metadata={
                             "bucket_name": bucket,
                             "key": key,
+                            "size": obj.get("Size"),
                             "versioning_enabled": versioning_enabled,
                         },
                     )

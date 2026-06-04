@@ -826,3 +826,35 @@ def test_default_sql_returns_none_for_non_sql_object():
     plugin = S3Plugin()
     node = _object_node("notes.txt")
     assert plugin.default_sql(node) is None
+
+
+def test_object_children_store_size_in_metadata():
+    session = make_session()
+    client = session.client.return_value
+    client.get_bucket_versioning.return_value = {"Status": "Suspended"}
+    client.get_paginator.return_value.paginate.return_value = [
+        {
+            "Contents": [
+                {"Key": "file-a.txt", "Size": 123},
+                {"Key": "file-b.txt", "Size": 456},
+            ]
+        }
+    ]
+
+    from awstui.models import TreeNode
+
+    bucket_node = TreeNode(
+        id="s3:bucket:b",
+        label="b",
+        node_type="bucket",
+        service="s3",
+        expandable=True,
+        metadata={"bucket_name": "b"},
+    )
+
+    plugin = S3Plugin()
+    children = plugin.get_children(session, bucket_node)
+
+    objects = [c for c in children if c.node_type == "object"]
+    assert objects[0].metadata["size"] == 123
+    assert objects[1].metadata["size"] == 456
