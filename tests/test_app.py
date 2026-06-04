@@ -240,6 +240,18 @@ def test_size_suffix_in_progress_and_done():
     assert _size_suffix(1024, done=True) == " (1.0 KB)"
 
 
+def test_size_suffix_with_count():
+    from awstui.app import _size_suffix
+
+    # Container: size + count, with thousands separator and plural noun.
+    assert _size_suffix(1024, done=True, count=3402) == " (1.0 KB, 3,402 objects)"
+    assert _size_suffix(1024, done=False, count=1201) == " (⋯ 1.0 KB, 1,201 objects)"
+    # Singular noun for exactly one object.
+    assert _size_suffix(1024, done=True, count=1) == " (1.0 KB, 1 object)"
+    # count=None -> size only (leaf objects).
+    assert _size_suffix(1024, done=True, count=None) == " (1.0 KB)"
+
+
 def test_check_action_hides_toggle_size_when_unsupported():
     from awstui.plugin import PluginRegistry
     from awstui.services.s3 import S3Plugin
@@ -287,21 +299,32 @@ class _FakeWorker:
 
 def test_set_node_size_updates_label_from_base():
     app = AWSBrowserApp()
-    node = _FakeNode("my-folder/")
+    # A container node (prefix) -> count is shown.
+    node = _FakeNode("my-folder/", data=_node("prefix", bucket_name="b", prefix="f/"))
     app._size_base_labels[id(node)] = "my-folder/"
 
-    app._set_node_size(node, 2048, done=False)
-    assert node.label == "my-folder/ (⋯ 2.0 KB)"
+    app._set_node_size(node, 2048, done=False, count=5)
+    assert node.label == "my-folder/ (⋯ 2.0 KB, 5 objects)"
 
-    app._set_node_size(node, 2048, done=True)
-    assert node.label == "my-folder/ (2.0 KB)"
+    app._set_node_size(node, 2048, done=True, count=5)
+    assert node.label == "my-folder/ (2.0 KB, 5 objects)"
+
+
+def test_set_node_size_object_shows_size_only():
+    app = AWSBrowserApp()
+    # A leaf object -> count is suppressed (always 1).
+    node = _FakeNode("file.txt", data=_node("object", bucket_name="b", key="file.txt"))
+    app._size_base_labels[id(node)] = "file.txt"
+
+    app._set_node_size(node, 2048, done=True, count=1)
+    assert node.label == "file.txt (2.0 KB)"
 
 
 def test_set_node_size_noop_after_toggle_off():
     app = AWSBrowserApp()
     node = _FakeNode("my-folder/")
     # Not in _size_base_labels -> treated as toggled off; label untouched.
-    app._set_node_size(node, 2048, done=True)
+    app._set_node_size(node, 2048, done=True, count=3)
     assert node.label == "my-folder/"
 
 
@@ -483,8 +506,8 @@ async def test_pressing_s_shows_size_in_label_end_to_end():
             return node.node_type == "bucket"
 
         def iter_size(self, session, node):
-            yield 500
-            yield 1024
+            yield 500, 1
+            yield 1024, 2
 
     with (
         patch("awstui.app.boto3") as mock_boto3,
@@ -524,4 +547,4 @@ async def test_pressing_s_shows_size_in_label_end_to_end():
             await app.workers.wait_for_complete()
             await pilot.pause()
 
-            assert "1.0 KB" in str(bucket_node.label)
+            assert "1.0 KB, 2 objects" in str(bucket_node.label)

@@ -85,12 +85,15 @@ class AWSServicePlugin(ABC):
         """
         return False
 
-    def iter_size(self, session: boto3.Session, node: TreeNode) -> Iterator[int]:
-        """Yield the *cumulative* byte total for `node` as it grows.
+    def iter_size(
+        self, session: boto3.Session, node: TreeNode
+    ) -> Iterator[tuple[int, int]]:
+        """Yield the *cumulative* `(byte_total, item_count)` for `node`.
 
         One yield per chunk of work (e.g. per page of a listing); the final
-        yielded value is the total. Consumers stop iterating to cancel.
-        Only called when `supports_size(node)` returned True.
+        yielded pair is the total size and the number of items comprising it.
+        Consumers stop iterating to cancel. Only called when
+        `supports_size(node)` returned True.
         """
         raise NotImplementedError
 

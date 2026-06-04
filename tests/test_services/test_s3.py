@@ -905,7 +905,7 @@ def test_iter_size_object_yields_metadata_size_once():
     plugin = S3Plugin()
     totals = list(plugin.iter_size(session, node))
 
-    assert totals == [789]
+    assert totals == [(789, 1)]
     session.client.return_value.get_paginator.assert_not_called()
 
 
@@ -923,7 +923,7 @@ def test_iter_size_object_missing_size_yields_zero():
     )
 
     plugin = S3Plugin()
-    assert list(plugin.iter_size(session, node)) == [0]
+    assert list(plugin.iter_size(session, node)) == [(0, 1)]
 
 
 def test_iter_size_bucket_yields_cumulative_total_per_page():
@@ -948,7 +948,8 @@ def test_iter_size_bucket_yields_cumulative_total_per_page():
     plugin = S3Plugin()
     totals = list(plugin.iter_size(session, node))
 
-    assert totals == [300, 350]
+    # (cumulative bytes, cumulative object count) per page.
+    assert totals == [(300, 2), (350, 3)]
 
 
 def test_iter_size_prefix_walks_recursively_without_delimiter():
@@ -972,7 +973,7 @@ def test_iter_size_prefix_walks_recursively_without_delimiter():
     plugin = S3Plugin()
     totals = list(plugin.iter_size(session, node))
 
-    assert totals == [10]
+    assert totals == [(10, 1)]
     client.get_paginator.return_value.paginate.assert_called_once_with(
         Bucket="b", Prefix="logs/"
     )
@@ -995,4 +996,4 @@ def test_iter_size_empty_bucket_yields_zero():
     )
 
     plugin = S3Plugin()
-    assert list(plugin.iter_size(session, node)) == [0]
+    assert list(plugin.iter_size(session, node)) == [(0, 0)]

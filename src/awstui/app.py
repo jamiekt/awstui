@@ -43,13 +43,21 @@ def _escape_sql(value: str) -> str:
     return value.replace("'", "''")
 
 
-def _size_suffix(total: int, done: bool) -> str:
-    """Return the label suffix for a node's size, e.g. ' (1.0 KB)' when done
-    or ' (⋯ 1.0 KB)' while the running total is still climbing."""
+def _size_suffix(total: int, done: bool, count: int | None = None) -> str:
+    """Return the label suffix for a node's size.
+
+    e.g. ' (1.0 KB)' for a single object, ' (1.2 GB, 3,402 objects)' for a
+    container, or ' (⋯ 1.2 GB, 1,201 objects)' while still climbing. `count`
+    is None for leaf objects (an object is always one object, so the count
+    would be noise); containers pass their running object count.
+    """
     from awstui.util import human_bytes
 
-    human = human_bytes(total)
-    return f" ({human})" if done else f" (⋯ {human})"
+    body = human_bytes(total)
+    if count is not None:
+        noun = "object" if count == 1 else "objects"
+        body += f", {count:,} {noun}"
+    return f" ({body})" if done else f" (⋯ {body})"
 
 
 class AWSBrowserApp(App):
@@ -539,12 +547,18 @@ class AWSBrowserApp(App):
                 yield child
             yield from self._iter_sized_descendants(child)
 
-    def _set_node_size(self, node, total: int, done: bool) -> None:
+    def _set_node_size(self, node, total: int, done: bool, count: int) -> None:
         base = self._size_base_labels.get(id(node))
         if base is None:
             # Toggled off (or region-switched) while the walk was in flight.
             return
-        node.set_label(base + _size_suffix(total, done))
+        # A leaf object is always one object — showing the count is noise, so
+        # only containers (buckets / prefixes) display it.
+        data = getattr(node, "data", None)
+        show_count = (
+            None if (data is not None and data.node_type == "object") else count
+        )
+        node.set_label(base + _size_suffix(total, done, show_count))
 
     def _set_node_size_unavailable(self, node) -> None:
         base = self._size_base_labels.get(id(node))
@@ -561,12 +575,13 @@ class AWSBrowserApp(App):
             return
         worker = get_current_worker()
         total = 0
+        count = 0
         try:
-            for total in plugin.iter_size(self._session, data):
+            for total, count in plugin.iter_size(self._session, data):
                 if worker.is_cancelled:
                     return
-                self.call_from_thread(self._set_node_size, node, total, False)
-            self.call_from_thread(self._set_node_size, node, total, True)
+                self.call_from_thread(self._set_node_size, node, total, False, count)
+            self.call_from_thread(self._set_node_size, node, total, True, count)
         except ClientError:
             self.call_from_thread(self._set_node_size_unavailable, node)
         except Exception:
