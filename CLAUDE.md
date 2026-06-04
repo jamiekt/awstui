@@ -10,7 +10,7 @@ uv run awstui --profile my-profile         # Run with a specific AWS profile
 uv run awstui --service s3 --service lambda  # Restrict services shown in the tree
 uv run pytest tests/ -v                    # Run all tests
 uv run pytest tests/test_services/test_s3.py -v                      # Single test file
-uv run pytest tests/test_services/test_s3.py::test_get_root_nodes -v # Single test
+uv run pytest tests/test_services/test_s3.py::test_get_root_nodes_returns_categories -v # Single test
 uv run ruff format .                       # Format
 uv run ruff check . --fix                  # Lint + autofix
 uv run mypy src                            # Type-check
@@ -86,6 +86,8 @@ Service plugins are tested by mocking `boto3.Session` with `MagicMock`. Pattern:
 ### SQL pane (DuckDB)
 
 `widgets/sql_pane.py` hosts a query editor + `DataTable` inside the detail pane's `tab-sql` `TabPane`. It posts `SqlSubmit` messages on Ctrl+Enter / Submit; the app runs DuckDB off-thread and calls back via `set_result` / `set_error`. The editor uses `TextArea.code_editor(language="sql")`, which requires the `textual[syntax]` extra.
+
+Errors render in a scrollable, wrapping `Static` (`#sql-error`) shown in place of the result table, not as a one-row `DataTable` cell — a single cell clips multi-line messages and hides the actionable part. `pytz` is a hard dependency: DuckDB imports it lazily to materialise `TIMESTAMP WITH TIME ZONE` values into Python (e.g. S3 Inventory parquet), so without it any query returning a tz-aware timestamp fails at fetch time.
 
 ### Specs and plans
 
