@@ -67,3 +67,61 @@ def test_cannot_instantiate_abc_directly():
 
     with pytest.raises(TypeError):
         AWSServicePlugin()
+
+
+def test_supports_size_defaults_false():
+    from awstui.plugin import AWSServicePlugin
+    from awstui.models import TreeNode
+
+    class Dummy(AWSServicePlugin):
+        @property
+        def name(self):
+            return "Dummy"
+
+        @property
+        def service_name(self):
+            return "dummy"
+
+        def get_root_nodes(self, session):
+            return []
+
+        def get_children(self, session, node):
+            return []
+
+        def get_details(self, session, node):
+            raise NotImplementedError
+
+    node = TreeNode(
+        id="x", label="x", node_type="thing", service="dummy", expandable=False
+    )
+    assert Dummy().supports_size(node) is False
+
+
+def test_iter_size_default_raises_not_implemented():
+    import pytest
+    from awstui.plugin import AWSServicePlugin
+    from awstui.models import TreeNode
+
+    class Dummy(AWSServicePlugin):
+        @property
+        def name(self):
+            return "Dummy"
+
+        @property
+        def service_name(self):
+            return "dummy"
+
+        def get_root_nodes(self, session):
+            return []
+
+        def get_children(self, session, node):
+            return []
+
+        def get_details(self, session, node):
+            raise NotImplementedError
+
+    node = TreeNode(
+        id="x", label="x", node_type="thing", service="dummy", expandable=False
+    )
+    with pytest.raises(NotImplementedError):
+        Dummy().iter_size(None, node)
