@@ -261,3 +261,78 @@ def test_check_action_hides_toggle_size_when_unsupported():
     category_node.service = "s3"
     app._current_node = category_node
     assert app.check_action("toggle_size", ()) is False
+
+
+class _FakeNode:
+    """Minimal stand-in for a Textual tree node for size-logic tests."""
+
+    def __init__(self, label, data=None, children=None):
+        self.label = label
+        self.data = data
+        self.children = children or []
+        self.set_label_calls = []
+
+    def set_label(self, label):
+        self.label = label
+        self.set_label_calls.append(label)
+
+
+class _FakeWorker:
+    def __init__(self):
+        self.cancelled = False
+
+    def cancel(self):
+        self.cancelled = True
+
+
+def test_set_node_size_updates_label_from_base():
+    app = AWSBrowserApp()
+    node = _FakeNode("my-folder/")
+    app._size_base_labels[id(node)] = "my-folder/"
+
+    app._set_node_size(node, 2048, done=False)
+    assert node.label == "my-folder/ (⋯ 2.0 KB)"
+
+    app._set_node_size(node, 2048, done=True)
+    assert node.label == "my-folder/ (2.0 KB)"
+
+
+def test_set_node_size_noop_after_toggle_off():
+    app = AWSBrowserApp()
+    node = _FakeNode("my-folder/")
+    # Not in _size_base_labels -> treated as toggled off; label untouched.
+    app._set_node_size(node, 2048, done=True)
+    assert node.label == "my-folder/"
+
+
+def test_cancel_size_restores_label_and_clears_state():
+    app = AWSBrowserApp()
+    node = _FakeNode("my-folder/ (⋯ 1.0 KB)")
+    worker = _FakeWorker()
+    app._size_base_labels[id(node)] = "my-folder/"
+    app._size_workers[id(node)] = worker
+
+    app._cancel_size(node)
+
+    assert worker.cancelled is True
+    assert node.label == "my-folder/"
+    assert id(node) not in app._size_base_labels
+    assert id(node) not in app._size_workers
+
+
+def test_size_off_cascades_to_sized_descendants():
+    app = AWSBrowserApp()
+    grandchild = _FakeNode("gc")
+    child = _FakeNode("c", children=[grandchild])
+    parent = _FakeNode("p", children=[child])
+
+    for n in (parent, child, grandchild):
+        app._size_base_labels[id(n)] = n.label
+        app._size_workers[id(n)] = _FakeWorker()
+
+    app._size_off(parent)
+
+    # All three turned off.
+    for n in (parent, child, grandchild):
+        assert id(n) not in app._size_base_labels
+        assert id(n) not in app._size_workers
