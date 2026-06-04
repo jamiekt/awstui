@@ -47,6 +47,8 @@ The `s` hotkey toggles recursive size calculation for the highlighted node, show
 
 The app owns the orchestration: `_size_base_labels` / `_size_workers` (both keyed by `id(textual_node)`) track which nodes are sized, one non-exclusive `@work(thread=True, group="size")` worker per node updates the label via `call_from_thread`, and the worker checks `get_current_worker().is_cancelled` between yields. Toggling a node off cascades to descendants it turned on; expanding a sized node cascades sizing to its new children. Region switch / tree reset calls `_cancel_all_sizes`. Sizes live on tree labels (not the detail pane), so they are independent of the `_selection_seq` machinery.
 
+Sizing counts **current object versions only** — the bucket/prefix walk uses `list_objects_v2`, which never enumerates noncurrent versions or delete markers, so totals on versioned buckets can understate the real stored footprint. `object_version` nodes are intentionally not sizeable (`supports_size` excludes them). Switching to all-versions accounting would mean a `list_object_versions` walk instead.
+
 ### Stale-result protection
 
 Async work (detail load, child count, tag summary, content, SQL) uses `_selection_seq` / `_tag_summary_seq` / `_content_seq` / `_sql_seq` counters. Every new selection increments `_selection_seq`; background workers capture it at start and their UI callbacks drop the result if it no longer matches (the user has navigated on). Workers use `@work(thread=True, exclusive=True, group=...)` so a new dispatch supersedes the in-flight one. When adding new background work, follow the same pattern.
