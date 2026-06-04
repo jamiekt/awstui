@@ -305,6 +305,23 @@ def test_set_node_size_noop_after_toggle_off():
     assert node.label == "my-folder/"
 
 
+def test_set_node_size_unavailable_appends_suffix():
+    app = AWSBrowserApp()
+    node = _FakeNode("my-folder/")
+    app._size_base_labels[id(node)] = "my-folder/"
+
+    app._set_node_size_unavailable(node)
+    assert node.label == "my-folder/ (size unavailable)"
+
+
+def test_set_node_size_unavailable_noop_after_toggle_off():
+    app = AWSBrowserApp()
+    node = _FakeNode("my-folder/")
+    # Not tracked -> toggled off; label untouched.
+    app._set_node_size_unavailable(node)
+    assert node.label == "my-folder/"
+
+
 def test_cancel_size_restores_label_and_clears_state():
     app = AWSBrowserApp()
     node = _FakeNode("my-folder/ (⋯ 1.0 KB)")
