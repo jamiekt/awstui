@@ -12,6 +12,7 @@ A read-only terminal UI for browsing AWS resources, built with [Textual](https:/
 - Filter hotkey
 - Copy URI hotkey (for S3 buckets and objects, ECR images)
 - Copy ARN hotkey
+- Size hotkey — calculate the total size of an S3 bucket, folder, or object on demand (recursive, with a live-updating total)
 
 ## Screenshots
 
@@ -50,6 +51,7 @@ Uses your existing AWS credentials (environment variables, `~/.aws/credentials`,
 | `a` | Copy the ARN of the selected resource to the clipboard |
 | `u` | Copy the URI of the selected resource (S3 bucket/object, ECR image) |
 | `r` | Copy the Raw JSON of the selected resource to the clipboard |
+| `s` | Toggle size calculation for the highlighted S3 bucket/folder/object (recursive total shown in the node label; expanding a sized node sizes its children too) |
 | `f` | Filter children of the highlighted node by substring (empty input clears) |
 | `w` | Toggle word wrap in the Content tab (CSVs default to no-wrap, others to wrap) |
 
