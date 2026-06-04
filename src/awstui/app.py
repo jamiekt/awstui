@@ -11,7 +11,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Static, TabbedContent, TabPane
 from textual import work
-from textual.worker import get_current_worker
+from textual.worker import Worker, get_current_worker
 
 from awstui.models import ContentPreview, ResourceDetails, TreeNode
 from awstui.plugin import PluginRegistry
@@ -127,7 +127,7 @@ class AWSBrowserApp(App):
         # id(textual TreeNode) -> label without the size suffix
         self._size_base_labels: dict[int, str] = {}
         # id(textual TreeNode) -> its in-flight size worker
-        self._size_workers: dict = {}
+        self._size_workers: dict[int, Worker] = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -479,6 +479,9 @@ class AWSBrowserApp(App):
         else:
             self._size_on(node)
 
+    # NB: the `node` argument to the size helpers below is a *Textual* tree
+    # node (it has .label / .set_label / .children); its `.data` is the
+    # awstui.models.TreeNode. Don't confuse the two — both are named TreeNode.
     def _size_on(self, node) -> None:
         """Start sizing `node`: record its base label and spawn a worker."""
         base = str(node.label)
