@@ -42,6 +42,15 @@ def _escape_sql(value: str) -> str:
     return value.replace("'", "''")
 
 
+def _size_suffix(total: int, done: bool) -> str:
+    """Return the label suffix for a node's size, e.g. ' (1.0 KB)' when done
+    or ' (⋯ 1.0 KB)' while the running total is still climbing."""
+    from awstui.util import human_bytes
+
+    human = human_bytes(total)
+    return f" ({human})" if done else f" (⋯ {human})"
+
+
 class AWSBrowserApp(App):
     """AWS TUI Browser."""
 
@@ -54,6 +63,7 @@ class AWSBrowserApp(App):
         Binding("a", "copy_arn", "Copy ARN"),
         Binding("u", "copy_uri", "Copy URI"),
         Binding("r", "copy_raw", "Copy Raw"),
+        Binding("s", "toggle_size", "Size"),
         Binding("f", "filter_children", "Filter"),
         Binding("w", "toggle_content_wrap", "Wrap"),
         Binding("[", "shrink_pane", "Shrink"),
@@ -113,6 +123,10 @@ class AWSBrowserApp(App):
         self._tag_summary_seq: int = -1
         self._content_seq: int = -1
         self._sql_seq: int = -1
+        # id(textual TreeNode) -> label without the size suffix
+        self._size_base_labels: dict[int, str] = {}
+        # id(textual TreeNode) -> its in-flight size worker
+        self._size_workers: dict = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -309,6 +323,11 @@ class AWSBrowserApp(App):
             return bool(self._current_uri())
         if action == "copy_raw":
             return bool(self._current_raw)
+        if action == "toggle_size":
+            return bool(
+                self._current_node is not None
+                and self._size_supported(self._current_node)
+            )
         return True
 
     def _current_arn(self) -> str:
@@ -437,6 +456,12 @@ class AWSBrowserApp(App):
         if word.endswith(("s", "x", "z", "ch", "sh")):
             return word + "es"
         return word + "s"
+
+    def _size_supported(self, node: TreeNode) -> bool:
+        if self._plugin_registry is None:
+            return False
+        plugin = self._plugin_registry.get(node.service)
+        return bool(plugin and plugin.supports_size(node))
 
     @work(thread=True, exclusive=True, group="details")
     def _load_details(self, node: TreeNode, seq: int) -> None:
