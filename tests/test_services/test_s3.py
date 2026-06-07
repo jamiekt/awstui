@@ -1038,3 +1038,23 @@ def test_iter_size_bucket_breakdown_aggregates_nested_prefixes():
         "s3:prefix:b:logs/2026/02/": (5, 1),
     }
     # "top" has no "/" below the root, so it contributes no prefix entry.
+
+
+def test_descendant_prefixes_enumerates_intermediate_dirs():
+    from awstui.services.s3 import _descendant_prefixes
+
+    assert list(_descendant_prefixes("logs/", "logs/2026/01/a")) == [
+        "logs/2026/",
+        "logs/2026/01/",
+    ]
+
+
+def test_descendant_prefixes_key_with_no_subdir_yields_nothing():
+    from awstui.services.s3 import _descendant_prefixes
+
+    # Key directly under the root with no further "/" -> no intermediate dirs.
+    assert list(_descendant_prefixes("logs/", "logs/a")) == []
+    # Key equal to the prefix -> nothing.
+    assert list(_descendant_prefixes("logs/", "logs/")) == []
+    # Key not under the root -> nothing (guard).
+    assert list(_descendant_prefixes("logs/", "other/a")) == []

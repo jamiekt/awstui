@@ -493,12 +493,14 @@ def test_cancel_all_sizes_clears_workers_and_labels():
     app._size_base_labels[id(n2)] = "b"
     app._size_workers[id(n1)] = w1
     app._size_workers[id(n2)] = w2
+    app._size_cache["s3:prefix:b:logs/"] = (10, 1)
 
     app._cancel_all_sizes()
 
     assert w1.cancelled and w2.cancelled
     assert app._size_base_labels == {}
     assert app._size_workers == {}
+    assert app._size_cache == {}
 
 
 @pytest.mark.asyncio

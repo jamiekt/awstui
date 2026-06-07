@@ -547,6 +547,7 @@ class AWSBrowserApp(App):
             worker.cancel()
         self._size_workers.clear()
         self._size_base_labels.clear()
+        self._size_cache.clear()
 
     def _cancel_size(self, node) -> None:
         worker = self._size_workers.pop(id(node), None)
