@@ -1,7 +1,28 @@
 # S3 descendant-size caching
 
 **Date:** 2026-06-07
-**Status:** Approved, pending implementation plan
+**Status:** Implemented, with one revision (see "Revision" below)
+
+## Revision (post-smoke-test)
+
+The original design surfaced cached descendant totals **lazily on expand** and
+accepted one redundancy: expanding a node *while its parent's walk was still in
+flight* fell back to a separate per-child walk, since the child wasn't cached
+yet. A smoke test on a very large bucket showed the consequence — N+1
+concurrent `list_objects_v2` walks, with the parent's running total visibly
+lagging the sum of its children mid-flight (each walk at a different point of
+its own progress).
+
+This was reworked: the single root walk now drives **live** updates to every
+currently-sized descendant from its per-page breakdown (`_apply_size_progress`),
+and cascaded container nodes under an in-flight ancestor spawn **no** worker
+(`_size_on` case 2 / `_has_sizing_ancestor`). There is now exactly one walk per
+sizing operation; `root_total == direct objects + Σ child-prefix totals` holds
+at every page, so the lag is gone. The cache is still committed only on the
+final page (so post-completion expansions read authoritative totals). Objects
+remain the exception — they size instantly from metadata and keep their own
+trivial worker. See "Node size calculation" in `CLAUDE.md` for the current
+behaviour; the sections below describe the original lazy design for context.
 
 ## Problem
 

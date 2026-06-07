@@ -353,6 +353,96 @@ def test_size_on_cache_miss_spawns_worker(monkeypatch):
     assert node.label == "logs/ (⋯)"
 
 
+def test_size_on_container_under_inflight_ancestor_skips_worker(monkeypatch):
+    """A prefix cascaded under an in-flight ancestor walk is fed by that
+    walk — it registers but spawns no worker of its own."""
+    app = AWSBrowserApp()
+
+    parent_data = _node("bucket", bucket_name="b")
+    parent_data.id = "s3:bucket:b"
+    parent = _FakeNode("b", data=parent_data)
+    # Parent is mid-walk: it has a live worker.
+    app._size_base_labels[id(parent)] = "b"
+    app._size_workers[id(parent)] = _FakeWorker()
+
+    child_data = _node("prefix", bucket_name="b", prefix="logs/")
+    child_data.id = "s3:prefix:b:logs/"
+    child = _FakeNode("logs/", data=child_data)
+    child.parent = parent
+    parent.children = [child]
+
+    spawned = []
+    monkeypatch.setattr(
+        app, "_size_worker", lambda n, d: spawned.append(n) or _FakeWorker()
+    )
+
+    app._size_on(child)
+
+    assert spawned == []  # no redundant walk
+    assert id(child) not in app._size_workers
+    assert app._size_base_labels[id(child)] == "logs/"
+    assert child.label == "logs/ (⋯)"
+
+
+def test_size_on_object_under_inflight_ancestor_still_spawns_worker(monkeypatch):
+    """An object leaf is never in a prefix breakdown, so it keeps its own
+    (instant, metadata-based) worker even under a sizing ancestor."""
+    app = AWSBrowserApp()
+
+    parent_data = _node("prefix", bucket_name="b", prefix="logs/")
+    parent_data.id = "s3:prefix:b:logs/"
+    parent = _FakeNode("logs/", data=parent_data)
+    app._size_base_labels[id(parent)] = "logs/"
+    app._size_workers[id(parent)] = _FakeWorker()
+
+    obj_data = _node("object", bucket_name="b", key="logs/a", size=10)
+    obj_data.id = "s3:object:b:logs/a"
+    obj = _FakeNode("a", data=obj_data)
+    obj.parent = parent
+    parent.children = [obj]
+
+    spawned = []
+    monkeypatch.setattr(
+        app, "_size_worker", lambda n, d: spawned.append(n) or _FakeWorker()
+    )
+
+    app._size_on(obj)
+
+    assert spawned == [obj]
+
+
+def test_apply_size_progress_updates_root_and_descendants():
+    """One walk's per-page breakdown drives the root and every sized
+    descendant in lock-step; the cache is committed only when done."""
+    app = AWSBrowserApp()
+
+    root_data = _node("bucket", bucket_name="b")
+    root_data.id = "s3:bucket:b"
+    root = _FakeNode("b", data=root_data)
+
+    child_data = _node("prefix", bucket_name="b", prefix="logs/")
+    child_data.id = "s3:prefix:b:logs/"
+    child = _FakeNode("logs/", data=child_data)
+    child.parent = root
+    root.children = [child]
+
+    # Both registered as sized; child has no worker (fed by root walk).
+    app._size_base_labels[id(root)] = "b"
+    app._size_base_labels[id(child)] = "logs/"
+
+    # Mid-walk page: climbing, cache untouched.
+    app._apply_size_progress(root, 30, 2, {"s3:prefix:b:logs/": (30, 2)}, done=False)
+    assert root.label == "b (⋯ 30 B, 2 objects)"
+    assert child.label == "logs/ (⋯ 30 B, 2 objects)"
+    assert app._size_cache == {}
+
+    # Final page: done, cache committed.
+    app._apply_size_progress(root, 50, 3, {"s3:prefix:b:logs/": (50, 3)}, done=True)
+    assert root.label == "b (50 B, 3 objects)"
+    assert child.label == "logs/ (50 B, 3 objects)"
+    assert app._size_cache == {"s3:prefix:b:logs/": (50, 3)}
+
+
 def test_set_node_size_noop_after_toggle_off():
     app = AWSBrowserApp()
     node = _FakeNode("my-folder/")
@@ -378,37 +468,40 @@ def test_set_node_size_unavailable_noop_after_toggle_off():
     assert node.label == "my-folder/"
 
 
-def test_merge_size_cache_updates_from_breakdown():
+def test_apply_size_progress_commits_cache_only_when_done():
     app = AWSBrowserApp()
     node = _FakeNode("b")
-    app._size_base_labels[id(node)] = "b"  # node is tracked -> merge applies
+    app._size_base_labels[id(node)] = "b"  # node is tracked
     assert app._size_cache == {}
 
-    app._merge_size_cache(node, {"s3:prefix:b:logs/": (100, 3)})
-    assert app._size_cache == {"s3:prefix:b:logs/": (100, 3)}
+    # Mid-walk page does not commit to the cache.
+    app._apply_size_progress(node, 100, 3, {"s3:prefix:b:logs/": (100, 3)}, done=False)
+    assert app._size_cache == {}
 
-    # A later walk merges/overwrites without dropping unrelated entries.
-    app._merge_size_cache(node, {"s3:prefix:b:logs/2026/": (40, 1)})
+    # Final page commits, merging without dropping unrelated entries.
+    app._size_cache["s3:prefix:b:old/"] = (1, 1)
+    app._apply_size_progress(node, 140, 4, {"s3:prefix:b:logs/": (100, 3)}, done=True)
     assert app._size_cache == {
+        "s3:prefix:b:old/": (1, 1),
         "s3:prefix:b:logs/": (100, 3),
-        "s3:prefix:b:logs/2026/": (40, 1),
     }
 
 
-def test_merge_size_cache_dropped_for_untracked_node():
-    """A merge for a node no longer tracked (cancelled / region-switched
-    between the walk finishing and this callback running) is dropped, so it
-    can't re-populate a just-cleared cache."""
+def test_apply_size_progress_dropped_for_untracked_node():
+    """A progress callback for a root no longer tracked (cancelled /
+    region-switched between the page finishing and this callback running) is
+    dropped, so it can't re-populate a just-cleared cache or label."""
     app = AWSBrowserApp()
     node = _FakeNode("b")
     # node is NOT in _size_base_labels -> treated as stale.
-    app._merge_size_cache(node, {"s3:prefix:b:logs/": (100, 3)})
+    app._apply_size_progress(node, 100, 3, {"s3:prefix:b:logs/": (100, 3)}, done=True)
     assert app._size_cache == {}
+    assert node.label == "b"
 
 
 def test_cache_hit_uses_real_get_children_node_id():
     """End-to-end id-contract check: a prefix breakdown from the real S3
-    iter_size, merged into the cache, is found by _size_on under the id the
+    iter_size, committed to the cache, is found by _size_on under the id the
     real get_children mints for that prefix node — proving the two id
     formats agree (the cache silently never hits if they drift)."""
     from awstui.services.s3 import S3Plugin
@@ -449,8 +542,8 @@ def test_cache_hit_uses_real_get_children_node_id():
 
     app = AWSBrowserApp()
     bucket_node = _FakeNode("b", data=bucket)
-    app._size_base_labels[id(bucket_node)] = "b"  # tracked, so merge applies
-    app._merge_size_cache(bucket_node, descendants)
+    app._size_base_labels[id(bucket_node)] = "b"  # tracked, so commit applies
+    app._apply_size_progress(bucket_node, total, count, descendants, done=True)
 
     # _size_on on the real child node finds the cached total: no worker, done.
     child_node = _FakeNode("logs/", data=child)

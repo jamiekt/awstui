@@ -515,9 +515,18 @@ class AWSBrowserApp(App):
     def _size_on(self, node) -> None:
         """Start sizing `node`.
 
-        On a size-cache hit (a parent walk already computed this node's total)
-        apply the completed total immediately with no worker; otherwise record
-        the base label and spawn a walk.
+        Three cases, in order:
+
+        1. **Completed-cache hit** — a finished ancestor walk already cached
+           this node's total: apply it immediately, `done`, no worker.
+        2. **Under an in-flight ancestor walk** — that single walk already
+           visits every key under `node` and feeds it via
+           `_apply_size_progress`, so we register `node` (climbing label) but
+           spawn no redundant walk. Objects are the exception: a leaf object
+           never appears in a prefix breakdown, so it keeps its own (instant,
+           metadata-based) worker.
+        3. **Otherwise** — this is the root of a new sizing operation: spawn a
+           walk.
         """
         base = str(node.label)
         self._size_base_labels[id(node)] = base
@@ -528,7 +537,20 @@ class AWSBrowserApp(App):
             self._set_node_size(node, total, done=True, count=count)
             return
         node.set_label(base + " (⋯)")
+        is_object = data is not None and data.node_type == "object"
+        if not is_object and self._has_sizing_ancestor(node):
+            # An in-flight ancestor walk will fill this in — no worker needed.
+            return
         self._size_workers[id(node)] = self._size_worker(node, data)
+
+    def _has_sizing_ancestor(self, node) -> bool:
+        """True if a textual ancestor of `node` has an in-flight size walk."""
+        parent = getattr(node, "parent", None)
+        while parent is not None:
+            if id(parent) in self._size_workers:
+                return True
+            parent = getattr(parent, "parent", None)
+        return False
 
     def _size_off(self, node) -> None:
         """Stop sizing `node` and every descendant it cascaded to."""
@@ -582,20 +604,45 @@ class AWSBrowserApp(App):
             return
         node.set_label(base + self._SIZE_UNAVAILABLE_SUFFIX)
 
-    def _merge_size_cache(self, node, descendants: dict[str, tuple[int, int]]) -> None:
-        """Merge a completed walk's descendant totals into the size cache.
+    def _apply_size_progress(
+        self,
+        root,
+        total: int,
+        count: int,
+        descendants: dict[str, tuple[int, int]],
+        done: bool,
+    ) -> None:
+        """Apply one walk page to the root node and all its sized descendants.
 
-        Called on the UI thread from `_size_worker` after the walk finishes,
-        so entries are always authoritative totals, never partials. Guarded by
-        `node`'s presence in `_size_base_labels` (the same stale-callback check
-        the other size callbacks use): if the walk was cancelled / the cache
-        was cleared (region switch) between the loop finishing and this
-        callback running, the node is no longer tracked and we drop the merge
-        rather than re-populate a just-cleared cache.
+        The single walk of `root` already yields the cumulative `(bytes,
+        count)` of every descendant prefix, so we drive them all from the one
+        breakdown rather than spawning a separate walk per child. Called on the
+        UI thread from `_size_worker`, once per page (`done=False`) and once at
+        completion (`done=True`).
+
+        Guarded by `root`'s presence in `_size_base_labels` (the same
+        stale-callback check the other size callbacks use): if the walk was
+        cancelled / the cache cleared (region switch) between the page
+        finishing and this callback running, the node is no longer tracked and
+        the whole update is dropped — so it can't re-populate a just-cleared
+        cache or write a label on a toggled-off node.
+
+        The descendant totals are committed to `_size_cache` only on the final
+        page, so a node expanded *after* the walk finishes reads an
+        authoritative total, never a partial.
         """
-        if id(node) not in self._size_base_labels:
+        if id(root) not in self._size_base_labels:
             return
-        self._size_cache.update(descendants)
+        self._set_node_size(root, total, done, count)
+        for descendant in self._iter_sized_descendants(root):
+            data = getattr(descendant, "data", None)
+            entry = descendants.get(data.id) if data is not None else None
+            if entry is None:
+                continue
+            d_total, d_count = entry
+            self._set_node_size(descendant, d_total, done, d_count)
+        if done:
+            self._size_cache.update(descendants)
 
     @work(thread=True, group="size")
     def _size_worker(self, node, data: TreeNode) -> None:
@@ -612,9 +659,12 @@ class AWSBrowserApp(App):
             for total, count, descendants in plugin.iter_size(self._session, data):
                 if worker.is_cancelled:
                     return
-                self.call_from_thread(self._set_node_size, node, total, False, count)
-            self.call_from_thread(self._set_node_size, node, total, True, count)
-            self.call_from_thread(self._merge_size_cache, node, descendants)
+                self.call_from_thread(
+                    self._apply_size_progress, node, total, count, descendants, False
+                )
+            self.call_from_thread(
+                self._apply_size_progress, node, total, count, descendants, True
+            )
         except ClientError:
             self.call_from_thread(self._set_node_size_unavailable, node)
         except Exception:
