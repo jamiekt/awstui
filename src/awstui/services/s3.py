@@ -526,9 +526,9 @@ class S3Plugin(AWSServicePlugin):
 
     def iter_size(
         self, session: boto3.Session, node: TreeNode
-    ) -> Iterator[tuple[int, int]]:
+    ) -> Iterator[tuple[int, int, dict[str, tuple[int, int]]]]:
         if node.node_type == "object":
-            yield int(node.metadata.get("size") or 0), 1
+            yield int(node.metadata.get("size") or 0), 1, {}
             return
         # bucket / prefix recursive walk
         client = session.client("s3")
@@ -537,11 +537,17 @@ class S3Plugin(AWSServicePlugin):
         paginator = client.get_paginator("list_objects_v2")
         total = 0
         count = 0
+        descendants: dict[str, tuple[int, int]] = {}
         for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
             for obj in page.get("Contents", []):
-                total += obj.get("Size", 0)
+                size = obj.get("Size", 0)
+                total += size
                 count += 1
-            yield total, count
+                for p in _descendant_prefixes(prefix, obj["Key"]):
+                    node_id = f"s3:prefix:{bucket}:{p}"
+                    b, c = descendants.get(node_id, (0, 0))
+                    descendants[node_id] = (b + size, c + 1)
+            yield total, count, dict(descendants)
 
     def has_content(self, node: TreeNode) -> bool:
         if node.node_type == "object":
@@ -640,6 +646,23 @@ def _preview_s3_object(
         size=size,
         truncated=truncated,
     )
+
+
+def _descendant_prefixes(root_prefix: str, key: str) -> Iterator[str]:
+    """Yield each intermediate directory prefix of `key` below `root_prefix`.
+
+    e.g. root_prefix="logs/", key="logs/2026/01/a" yields
+    "logs/2026/", "logs/2026/01/". A key with no "/" below the root yields
+    nothing. Each yielded value matches the prefix string `get_children`
+    uses to build a prefix node's id.
+    """
+    if not key.startswith(root_prefix):
+        return
+    remainder = key[len(root_prefix) :]
+    idx = remainder.find("/")
+    while idx != -1:
+        yield root_prefix + remainder[: idx + 1]
+        idx = remainder.find("/", idx + 1)
 
 
 def _bucket_versioning_enabled(client, bucket: str) -> bool:

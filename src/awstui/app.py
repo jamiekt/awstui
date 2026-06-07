@@ -136,6 +136,10 @@ class AWSBrowserApp(App):
         self._size_base_labels: dict[int, str] = {}
         # id(textual TreeNode) -> its in-flight size worker
         self._size_workers: dict[int, Worker] = {}
+        # awstui node-id -> cached cumulative (byte_total, item_count) for
+        # descendants discovered during a parent's size walk. Lets _size_on
+        # serve a child's size without re-walking. Cleared on region switch.
+        self._size_cache: dict[str, tuple[int, int]] = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -566,6 +570,14 @@ class AWSBrowserApp(App):
             return
         node.set_label(base + self._SIZE_UNAVAILABLE_SUFFIX)
 
+    def _merge_size_cache(self, descendants: dict[str, tuple[int, int]]) -> None:
+        """Merge a completed walk's descendant totals into the size cache.
+
+        Called on the UI thread from `_size_worker` after the walk finishes,
+        so entries are always authoritative totals, never partials.
+        """
+        self._size_cache.update(descendants)
+
     @work(thread=True, group="size")
     def _size_worker(self, node, data: TreeNode) -> None:
         plugin = (
@@ -576,12 +588,14 @@ class AWSBrowserApp(App):
         worker = get_current_worker()
         total = 0
         count = 0
+        descendants: dict[str, tuple[int, int]] = {}
         try:
-            for total, count in plugin.iter_size(self._session, data):
+            for total, count, descendants in plugin.iter_size(self._session, data):
                 if worker.is_cancelled:
                     return
                 self.call_from_thread(self._set_node_size, node, total, False, count)
             self.call_from_thread(self._set_node_size, node, total, True, count)
+            self.call_from_thread(self._merge_size_cache, descendants)
         except ClientError:
             self.call_from_thread(self._set_node_size_unavailable, node)
         except Exception:

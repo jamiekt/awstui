@@ -345,6 +345,21 @@ def test_set_node_size_unavailable_noop_after_toggle_off():
     assert node.label == "my-folder/"
 
 
+def test_merge_size_cache_updates_from_breakdown():
+    app = AWSBrowserApp()
+    assert app._size_cache == {}
+
+    app._merge_size_cache({"s3:prefix:b:logs/": (100, 3)})
+    assert app._size_cache == {"s3:prefix:b:logs/": (100, 3)}
+
+    # A later walk merges/overwrites without dropping unrelated entries.
+    app._merge_size_cache({"s3:prefix:b:logs/2026/": (40, 1)})
+    assert app._size_cache == {
+        "s3:prefix:b:logs/": (100, 3),
+        "s3:prefix:b:logs/2026/": (40, 1),
+    }
+
+
 def test_cancel_size_restores_label_and_clears_state():
     app = AWSBrowserApp()
     node = _FakeNode("my-folder/ (⋯ 1.0 KB)")
@@ -506,8 +521,8 @@ async def test_pressing_s_shows_size_in_label_end_to_end():
             return node.node_type == "bucket"
 
         def iter_size(self, session, node):
-            yield 500, 1
-            yield 1024, 2
+            yield 500, 1, {}
+            yield 1024, 2, {}
 
     with (
         patch("awstui.app.boto3") as mock_boto3,

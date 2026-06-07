@@ -87,13 +87,21 @@ class AWSServicePlugin(ABC):
 
     def iter_size(
         self, session: boto3.Session, node: TreeNode
-    ) -> Iterator[tuple[int, int]]:
-        """Yield the *cumulative* `(byte_total, item_count)` for `node`.
+    ) -> Iterator[tuple[int, int, dict[str, tuple[int, int]]]]:
+        """Yield cumulative `(byte_total, item_count, descendants)` for `node`.
 
         One yield per chunk of work (e.g. per page of a listing); the final
-        yielded pair is the total size and the number of items comprising it.
-        Consumers stop iterating to cancel. Only called when
-        `supports_size(node)` returned True.
+        yielded `byte_total` / `item_count` are the node's total size and the
+        number of items comprising it. Consumers stop iterating to cancel.
+
+        `descendants` maps a descendant node's awstui node-id (the same id
+        `get_children` produces) to its cumulative `(bytes, count)`. It lets a
+        consumer cache descendant totals so they can be shown later without
+        re-walking. It is optional — yield an empty dict when there is no
+        cheaper-than-re-walking breakdown to offer (leaf nodes always do).
+        Only the final yield's breakdown need be complete.
+
+        Only called when `supports_size(node)` returned True.
         """
         raise NotImplementedError
 
