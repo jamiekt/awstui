@@ -582,12 +582,19 @@ class AWSBrowserApp(App):
             return
         node.set_label(base + self._SIZE_UNAVAILABLE_SUFFIX)
 
-    def _merge_size_cache(self, descendants: dict[str, tuple[int, int]]) -> None:
+    def _merge_size_cache(self, node, descendants: dict[str, tuple[int, int]]) -> None:
         """Merge a completed walk's descendant totals into the size cache.
 
         Called on the UI thread from `_size_worker` after the walk finishes,
-        so entries are always authoritative totals, never partials.
+        so entries are always authoritative totals, never partials. Guarded by
+        `node`'s presence in `_size_base_labels` (the same stale-callback check
+        the other size callbacks use): if the walk was cancelled / the cache
+        was cleared (region switch) between the loop finishing and this
+        callback running, the node is no longer tracked and we drop the merge
+        rather than re-populate a just-cleared cache.
         """
+        if id(node) not in self._size_base_labels:
+            return
         self._size_cache.update(descendants)
 
     @work(thread=True, group="size")
@@ -607,7 +614,7 @@ class AWSBrowserApp(App):
                     return
                 self.call_from_thread(self._set_node_size, node, total, False, count)
             self.call_from_thread(self._set_node_size, node, total, True, count)
-            self.call_from_thread(self._merge_size_cache, descendants)
+            self.call_from_thread(self._merge_size_cache, node, descendants)
         except ClientError:
             self.call_from_thread(self._set_node_size_unavailable, node)
         except Exception:

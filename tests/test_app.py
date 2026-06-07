@@ -380,17 +380,83 @@ def test_set_node_size_unavailable_noop_after_toggle_off():
 
 def test_merge_size_cache_updates_from_breakdown():
     app = AWSBrowserApp()
+    node = _FakeNode("b")
+    app._size_base_labels[id(node)] = "b"  # node is tracked -> merge applies
     assert app._size_cache == {}
 
-    app._merge_size_cache({"s3:prefix:b:logs/": (100, 3)})
+    app._merge_size_cache(node, {"s3:prefix:b:logs/": (100, 3)})
     assert app._size_cache == {"s3:prefix:b:logs/": (100, 3)}
 
     # A later walk merges/overwrites without dropping unrelated entries.
-    app._merge_size_cache({"s3:prefix:b:logs/2026/": (40, 1)})
+    app._merge_size_cache(node, {"s3:prefix:b:logs/2026/": (40, 1)})
     assert app._size_cache == {
         "s3:prefix:b:logs/": (100, 3),
         "s3:prefix:b:logs/2026/": (40, 1),
     }
+
+
+def test_merge_size_cache_dropped_for_untracked_node():
+    """A merge for a node no longer tracked (cancelled / region-switched
+    between the walk finishing and this callback running) is dropped, so it
+    can't re-populate a just-cleared cache."""
+    app = AWSBrowserApp()
+    node = _FakeNode("b")
+    # node is NOT in _size_base_labels -> treated as stale.
+    app._merge_size_cache(node, {"s3:prefix:b:logs/": (100, 3)})
+    assert app._size_cache == {}
+
+
+def test_cache_hit_uses_real_get_children_node_id():
+    """End-to-end id-contract check: a prefix breakdown from the real S3
+    iter_size, merged into the cache, is found by _size_on under the id the
+    real get_children mints for that prefix node — proving the two id
+    formats agree (the cache silently never hits if they drift)."""
+    from awstui.services.s3 import S3Plugin
+
+    plugin = S3Plugin()
+    session = MagicMock()
+    client = session.client.return_value
+
+    # iter_size paginates WITHOUT a delimiter (recursive); get_children
+    # paginates WITH Delimiter="/". Route pages by that distinction.
+    def paginate(**kwargs):
+        if "Delimiter" in kwargs:
+            return [{"CommonPrefixes": [{"Prefix": "logs/"}], "Contents": []}]
+        return [
+            {"Contents": [{"Key": "logs/a", "Size": 10}, {"Key": "logs/b", "Size": 20}]}
+        ]
+
+    client.get_paginator.return_value.paginate.side_effect = paginate
+    client.get_bucket_versioning.return_value = {"Status": "Suspended"}
+
+    bucket = TreeNode(
+        id="s3:bucket:b",
+        label="b",
+        node_type="bucket",
+        service="s3",
+        expandable=True,
+        metadata={"bucket_name": "b"},
+    )
+
+    # Real walk -> breakdown keyed by the prefix node-id.
+    *_, (total, count, descendants) = list(plugin.iter_size(session, bucket))
+    assert descendants == {"s3:prefix:b:logs/": (30, 2)}
+
+    # Real get_children mints the child prefix node with its own id.
+    children = plugin.get_children(session, bucket)
+    child = next(c for c in children if c.node_type == "prefix")
+    assert child.id == "s3:prefix:b:logs/"  # same string the breakdown used
+
+    app = AWSBrowserApp()
+    bucket_node = _FakeNode("b", data=bucket)
+    app._size_base_labels[id(bucket_node)] = "b"  # tracked, so merge applies
+    app._merge_size_cache(bucket_node, descendants)
+
+    # _size_on on the real child node finds the cached total: no worker, done.
+    child_node = _FakeNode("logs/", data=child)
+    app._size_on(child_node)
+    assert child_node.label == "logs/ (30 B, 2 objects)"
+    assert id(child_node) not in app._size_workers
 
 
 def test_cancel_size_restores_label_and_clears_state():
