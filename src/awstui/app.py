@@ -520,16 +520,15 @@ class AWSBrowserApp(App):
         the base label and spawn a walk.
         """
         base = str(node.label)
+        self._size_base_labels[id(node)] = base
         data = getattr(node, "data", None)
         cached = self._size_cache.get(data.id) if data is not None else None
         if cached is not None:
-            self._size_base_labels[id(node)] = base
             total, count = cached
             self._set_node_size(node, total, done=True, count=count)
             return
-        self._size_base_labels[id(node)] = base
         node.set_label(base + " (⋯)")
-        self._size_workers[id(node)] = self._size_worker(node, node.data)
+        self._size_workers[id(node)] = self._size_worker(node, data)
 
     def _size_off(self, node) -> None:
         """Stop sizing `node` and every descendant it cascaded to."""
