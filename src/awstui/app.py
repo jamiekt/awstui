@@ -513,8 +513,20 @@ class AWSBrowserApp(App):
     # node (it has .label / .set_label / .children); its `.data` is the
     # awstui.models.TreeNode. Don't confuse the two — both are named TreeNode.
     def _size_on(self, node) -> None:
-        """Start sizing `node`: record its base label and spawn a worker."""
+        """Start sizing `node`.
+
+        On a size-cache hit (a parent walk already computed this node's total)
+        apply the completed total immediately with no worker; otherwise record
+        the base label and spawn a walk.
+        """
         base = str(node.label)
+        data = getattr(node, "data", None)
+        cached = self._size_cache.get(data.id) if data is not None else None
+        if cached is not None:
+            self._size_base_labels[id(node)] = base
+            total, count = cached
+            self._set_node_size(node, total, done=True, count=count)
+            return
         self._size_base_labels[id(node)] = base
         node.set_label(base + " (⋯)")
         self._size_workers[id(node)] = self._size_worker(node, node.data)

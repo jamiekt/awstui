@@ -320,6 +320,39 @@ def test_set_node_size_object_shows_size_only():
     assert node.label == "file.txt (2.0 KB)"
 
 
+def test_size_on_serves_cache_hit_without_worker():
+    app = AWSBrowserApp()
+    data = _node("prefix", bucket_name="b", prefix="logs/")
+    data.id = "s3:prefix:b:logs/"
+    node = _FakeNode("logs/", data=data)
+    app._size_cache["s3:prefix:b:logs/"] = (2048, 5)
+
+    app._size_on(node)
+
+    # Completed total applied straight from cache; no worker spawned.
+    assert node.label == "logs/ (2.0 KB, 5 objects)"
+    assert app._size_base_labels[id(node)] == "logs/"
+    assert id(node) not in app._size_workers
+
+
+def test_size_on_cache_miss_spawns_worker(monkeypatch):
+    app = AWSBrowserApp()
+    data = _node("prefix", bucket_name="b", prefix="logs/")
+    data.id = "s3:prefix:b:logs/"
+    node = _FakeNode("logs/", data=data)
+
+    spawned = []
+    monkeypatch.setattr(
+        app, "_size_worker", lambda n, d: spawned.append(n) or _FakeWorker()
+    )
+
+    app._size_on(node)
+
+    assert spawned == [node]
+    assert app._size_base_labels[id(node)] == "logs/"
+    assert node.label == "logs/ (⋯)"
+
+
 def test_set_node_size_noop_after_toggle_off():
     app = AWSBrowserApp()
     node = _FakeNode("my-folder/")
