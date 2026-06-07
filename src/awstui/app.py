@@ -669,6 +669,16 @@ class AWSBrowserApp(App):
             self.call_from_thread(self._set_node_size_unavailable, node)
         except Exception:
             self.call_from_thread(self._set_node_size_unavailable, node)
+        finally:
+            # Drop our own worker entry once the walk ends (completed / errored /
+            # cancelled), so `_has_sizing_ancestor` means "in-flight" rather than
+            # "ever walked". On the cancelled path `_cancel_size` already popped
+            # it; the pop-with-default makes the repeat harmless. The base label
+            # and any committed cache survive — only the live-worker handle goes.
+            self.call_from_thread(self._forget_size_worker, id(node))
+
+    def _forget_size_worker(self, node_id: int) -> None:
+        self._size_workers.pop(node_id, None)
 
     @work(thread=True, exclusive=True, group="details")
     def _load_details(self, node: TreeNode, seq: int) -> None:

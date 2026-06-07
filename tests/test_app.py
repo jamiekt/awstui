@@ -411,6 +411,21 @@ def test_size_on_object_under_inflight_ancestor_still_spawns_worker(monkeypatch)
     assert spawned == [obj]
 
 
+def test_forget_size_worker_clears_in_flight_handle():
+    """A completed walk drops its worker handle (the worker's `finally`
+    calls this), so `_has_sizing_ancestor` reports in-flight, not ever-ran."""
+    app = AWSBrowserApp()
+    parent = _FakeNode("b")
+    child = _FakeNode("logs/")
+    child.parent = parent
+    app._size_workers[id(parent)] = _FakeWorker()
+
+    assert app._has_sizing_ancestor(child) is True
+    app._forget_size_worker(id(parent))
+    assert id(parent) not in app._size_workers
+    assert app._has_sizing_ancestor(child) is False
+
+
 def test_apply_size_progress_updates_root_and_descendants():
     """One walk's per-page breakdown drives the root and every sized
     descendant in lock-step; the cache is committed only when done."""
