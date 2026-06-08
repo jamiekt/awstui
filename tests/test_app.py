@@ -677,6 +677,56 @@ def test_cancel_all_sizes_clears_workers_and_labels():
     assert app._size_cache == {}
 
 
+def test_size_values_populated_by_set_node_size():
+    app = AWSBrowserApp()
+    node = _FakeNode("logs/")
+    app._size_base_labels[id(node)] = "logs/"  # tracked
+
+    app._set_node_size(node, 2048, done=False, count=5)
+    assert app._size_values[id(node)] == 2048
+
+    app._set_node_size(node, 4096, done=True, count=9)
+    assert app._size_values[id(node)] == 4096  # updates on done too
+
+
+def test_set_node_size_skips_size_values_when_untracked():
+    app = AWSBrowserApp()
+    node = _FakeNode("logs/")
+    # NOT in _size_base_labels -> early return, no entry recorded.
+    app._set_node_size(node, 2048, done=True, count=5)
+    assert id(node) not in app._size_values
+
+
+def test_size_unavailable_drops_size_values_entry():
+    app = AWSBrowserApp()
+    node = _FakeNode("logs/")
+    app._size_base_labels[id(node)] = "logs/"
+    app._size_values[id(node)] = 999  # stale prior total
+
+    app._set_node_size_unavailable(node)
+    assert id(node) not in app._size_values
+
+
+def test_cancel_size_drops_size_values_entry():
+    app = AWSBrowserApp()
+    node = _FakeNode("logs/")
+    app._size_base_labels[id(node)] = "logs/"
+    app._size_values[id(node)] = 2048
+
+    app._cancel_size(node)
+    assert id(node) not in app._size_values
+
+
+def test_cancel_all_sizes_clears_size_values():
+    app = AWSBrowserApp()
+    n = _FakeNode("a")
+    app._size_base_labels[id(n)] = "a"
+    app._size_values[id(n)] = 10
+
+    app._cancel_all_sizes()
+    assert app._size_values == {}
+
+
 @pytest.mark.asyncio
 async def test_pressing_s_shows_size_in_label_end_to_end():
     """Press `s` on a bucket node and confirm the label gains a size.

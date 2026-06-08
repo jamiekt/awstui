@@ -140,6 +140,10 @@ class AWSBrowserApp(App):
         # descendants discovered during a parent's size walk. Lets _size_on
         # serve a child's size without re-walking. Cleared on region switch.
         self._size_cache: dict[str, tuple[int, int]] = {}
+        # id(textual TreeNode) -> its computed byte total. Drives the
+        # sibling-relative size bar in the nav tree (shared by reference with
+        # AWSNavTree.size_values). Lifecycle mirrors _size_base_labels.
+        self._size_values: dict[int, int] = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -569,11 +573,13 @@ class AWSBrowserApp(App):
         self._size_workers.clear()
         self._size_base_labels.clear()
         self._size_cache.clear()
+        self._size_values.clear()
 
     def _cancel_size(self, node) -> None:
         worker = self._size_workers.pop(id(node), None)
         if worker is not None:
             worker.cancel()
+        self._size_values.pop(id(node), None)
         base = self._size_base_labels.pop(id(node), None)
         if base is not None:
             node.set_label(base)
@@ -590,6 +596,7 @@ class AWSBrowserApp(App):
         if base is None:
             # Toggled off (or region-switched) while the walk was in flight.
             return
+        self._size_values[id(node)] = total
         # A leaf object is always one object — showing the count is noise, so
         # only containers (buckets / prefixes) display it.
         data = getattr(node, "data", None)
@@ -602,6 +609,7 @@ class AWSBrowserApp(App):
         base = self._size_base_labels.get(id(node))
         if base is None:
             return
+        self._size_values.pop(id(node), None)
         node.set_label(base + self._SIZE_UNAVAILABLE_SUFFIX)
 
     def _apply_size_progress(
