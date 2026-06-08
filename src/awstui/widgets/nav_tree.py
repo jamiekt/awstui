@@ -5,6 +5,7 @@ from botocore.exceptions import ClientError
 from rich.style import Style
 from rich.text import Text
 from textual.binding import Binding
+from textual.color import Color
 from textual.message import Message
 from textual.widgets import Tree
 
@@ -15,9 +16,22 @@ from awstui.plugin import AWSServicePlugin
 _FILTER_BADGE_COLOR = "bright_yellow"
 _FILTER_ICON = "🔍"
 
-# Faint, low-contrast background for the sibling-relative size bar. Chosen to
-# sit close to the panel background so label text stays legible; tune freely.
+# Fallback background for the sibling-relative size bar when the live theme
+# can't be read (e.g. the tree isn't mounted). Normally the bar colour is
+# derived from the active theme — see AWSNavTree._size_bar_color.
 _SIZE_BAR_BG = "#2b3a4a"
+
+# How far to blend the tree's background toward the theme accent for the bar.
+# Background-dominant so label text stays legible; visible against the bg in
+# both light and dark themes.
+_SIZE_BAR_BLEND = 0.3
+
+
+def _blend_bar_color(background: Color, accent: Color, ratio: float) -> str:
+    """Hex colour for the size bar: `background` blended `ratio` toward
+    `accent`. Background-dominant (small ratio) keeps the label readable while
+    staying distinct from the row background in any theme."""
+    return background.blend(accent, ratio).hex
 
 
 def _size_bar_cells(fraction: float, width: int) -> int:
@@ -114,6 +128,22 @@ class AWSNavTree(Tree[TreeNode]):
             return None
         return own / parent_total
 
+    def _size_bar_color(self) -> str:
+        """Theme-aware background colour for the size bar.
+
+        Blends the tree's resolved background toward the active theme's accent,
+        so the bar is visible in dark themes and light enough to keep label
+        text legible in light themes. Falls back to `_SIZE_BAR_BG` if the live
+        theme can't be read (e.g. the tree isn't mounted yet).
+        """
+        try:
+            # self.app raises NoActiveAppError (a RuntimeError) when unmounted.
+            accent = Color.parse(self.app.current_theme.accent)
+            background = self.background_colors[1]
+        except RuntimeError:
+            return _SIZE_BAR_BG
+        return _blend_bar_color(background, accent, _SIZE_BAR_BLEND)
+
     def _paint_size_bar(self, text: Text, node) -> Text:
         """Shade the first `fraction * width` cells of `text`'s background.
 
@@ -134,7 +164,7 @@ class AWSNavTree(Tree[TreeNode]):
         # clamps to the text length, so a longer label needs no padding.
         if text.cell_len < cells:
             text.pad_right(cells - text.cell_len)
-        text.stylize(Style(bgcolor=_SIZE_BAR_BG), 0, cells)
+        text.stylize(Style(bgcolor=self._size_bar_color()), 0, cells)
         return text
 
     def render_label(self, node, base_style, style):
