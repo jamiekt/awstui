@@ -21,6 +21,24 @@ async def test_app_starts():
             assert app.title == "awstui"
 
 
+@pytest.mark.asyncio
+async def test_on_mount_shares_size_values_with_tree():
+    """The nav tree's size_values must be the SAME dict object as the app's
+    _size_values — the size bar reads it by reference at render time. If this
+    wiring is dropped, bars silently never render (every other test passes)."""
+    from awstui.widgets.nav_tree import AWSNavTree
+
+    with patch("awstui.app.boto3") as mock_boto3:
+        mock_session = MagicMock()
+        mock_session.region_name = "us-east-1"
+        mock_boto3.Session.return_value = mock_session
+
+        app = AWSBrowserApp()
+        async with app.run_test(size=(120, 40)):
+            tree = app.query_one(AWSNavTree)
+            assert tree.size_values is app._size_values
+
+
 def test_find_arn_top_level():
     app = AWSBrowserApp()
     assert (
