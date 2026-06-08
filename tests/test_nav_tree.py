@@ -98,9 +98,11 @@ def test_render_label_paints_bar_for_sized_node(monkeypatch):
 
     text = tree.render_label(child, Style(), Style())
 
-    # 50% of 20 = 10 cells shaded; label padded to >= 20 cells.
+    # 50% of 20 = 10 cells shaded; label padded only to the bar length (10),
+    # not the full available width (20), to avoid inflating the tree's
+    # measured label/virtual width.
     assert _bg_span_len(text) == 10
-    assert text.cell_len >= 20
+    assert text.cell_len == 10
 
 
 def test_render_label_no_bar_when_unsized(monkeypatch):
@@ -120,6 +122,18 @@ def test_render_label_no_bar_when_width_zero(monkeypatch):
     child = parent.add("logs/")
     tree.size_values = {id(parent): 1000, id(child): 500}
     monkeypatch.setattr(tree, "_available_bar_width", lambda node: 0)
+
+    text = tree.render_label(child, Style(), Style())
+    assert _bg_span_len(text) == 0
+
+
+def test_render_label_no_bar_when_fraction_rounds_to_zero(monkeypatch):
+    tree = _tree()
+    parent = tree.root.add("bucket")
+    child = parent.add("logs/")
+    # 10/1000 = 1% of 20 cells -> round(0.2) -> 0 cells -> no bar.
+    tree.size_values = {id(parent): 1000, id(child): 10}
+    monkeypatch.setattr(tree, "_available_bar_width", lambda node: 20)
 
     text = tree.render_label(child, Style(), Style())
     assert _bg_span_len(text) == 0

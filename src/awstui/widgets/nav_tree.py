@@ -129,8 +129,11 @@ class AWSNavTree(Tree[TreeNode]):
         cells = _size_bar_cells(fraction, width)
         if cells <= 0:
             return text
-        if text.cell_len < width:
-            text.pad_right(width - text.cell_len)
+        # Pad only up to the bar length (not the full row width) so we don't
+        # inflate the tree's measured label width / virtual size. stylize
+        # clamps to the text length, so a longer label needs no padding.
+        if text.cell_len < cells:
+            text.pad_right(cells - text.cell_len)
         text.stylize(Style(bgcolor=_SIZE_BAR_BG), 0, cells)
         return text
 
