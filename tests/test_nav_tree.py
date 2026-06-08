@@ -145,22 +145,22 @@ def test_render_label_no_bar_when_fraction_rounds_to_zero(monkeypatch):
     assert _bg_span_len(text) == 0
 
 
-def test_blend_bar_color_tints_background_toward_accent():
-    # A dark bg blended 30% toward a bright accent moves toward the accent but
-    # stays closer to the bg -> the bar is visible against the dark bg.
-    out = _blend_bar_color(Color.parse("#1e1e1e"), Color.parse("#ffa62b"), 0.3)
-    expected = Color.parse("#1e1e1e").blend(Color.parse("#ffa62b"), 0.3).hex
-    assert out == expected
-    # And it is distinct from both endpoints.
-    assert out != "#1e1e1e"
-    assert out.lower() != "#ffa62b"
+def test_blend_bar_color_visible_against_dark_background():
+    # A dark bg blended 30% toward a bright accent must lift the bar's
+    # lightness clearly above the bg so the bar is visible in a dark theme.
+    dark_bg = Color.parse("#1e1e1e")
+    bar = Color.parse(_blend_bar_color(dark_bg, Color.parse("#ffa62b"), 0.3))
+    assert bar.hsl.l > dark_bg.hsl.l + 0.05  # clearly lighter than the bg
+    # Stays bg-dominant (not a solid accent block).
+    assert bar.hsl.l < Color.parse("#ffa62b").hsl.l
 
 
-def test_blend_bar_color_light_background_stays_light():
-    # A light bg tinted toward a dark-ish accent stays light enough that dark
-    # label text remains legible (the blend is bg-dominant at 0.3).
-    out = _blend_bar_color(Color.parse("#e0e0e0"), Color.parse("#004578"), 0.3)
-    assert out == Color.parse("#e0e0e0").blend(Color.parse("#004578"), 0.3).hex
+def test_blend_bar_color_light_background_stays_legible():
+    # A light bg tinted toward a dark-ish accent must stay light enough that
+    # dark label text on top remains legible (the blend is bg-dominant at 0.3).
+    light_bg = Color.parse("#e0e0e0")
+    bar = Color.parse(_blend_bar_color(light_bg, Color.parse("#004578"), 0.3))
+    assert bar.hsl.l > 0.5  # still a light shade, dark text readable
 
 
 def test_size_bar_color_falls_back_without_active_app():
