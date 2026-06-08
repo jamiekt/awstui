@@ -196,6 +196,7 @@ class AWSBrowserApp(App):
         # Mount fresh widgets
         nav_pane.mount(RegionSelector(self._region))
         tree = AWSNavTree(self._session, plugins)
+        tree.size_values = self._size_values  # share by reference for the size bar
         nav_pane.mount(tree)
         tree.focus()
 

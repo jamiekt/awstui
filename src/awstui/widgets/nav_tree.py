@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import boto3
 from botocore.exceptions import ClientError
+from rich.style import Style
 from rich.text import Text
 from textual.binding import Binding
 from textual.message import Message
@@ -13,6 +14,10 @@ from awstui.plugin import AWSServicePlugin
 # Shown next to a node's label when a filter is active on its children.
 _FILTER_BADGE_COLOR = "bright_yellow"
 _FILTER_ICON = "🔍"
+
+# Faint, low-contrast background for the sibling-relative size bar. Chosen to
+# sit close to the panel background so label text stays legible; tune freely.
+_SIZE_BAR_BG = "#2b3a4a"
 
 
 def _size_bar_cells(fraction: float, width: int) -> int:
@@ -108,6 +113,30 @@ class AWSNavTree(Tree[TreeNode]):
         if not parent_total:  # None or 0
             return None
         return own / parent_total
+
+    def _paint_size_bar(self, text: Text, node) -> Text:
+        """Shade the first `fraction * width` cells of `text`'s background.
+
+        No-op (returns `text` unchanged) when the node has no size fraction or
+        no room. Pads `text` to the full available width first so a short label
+        can still show a long bar. Only the background is styled; foreground
+        glyphs and colours are untouched, keeping the label readable.
+        """
+        fraction = self._size_fraction(node)
+        if fraction is None:
+            return text
+        width = self._available_bar_width(node)
+        cells = _size_bar_cells(fraction, width)
+        if cells <= 0:
+            return text
+        if text.cell_len < width:
+            text.pad_right(width - text.cell_len)
+        text.stylize(Style(bgcolor=_SIZE_BAR_BG), 0, cells)
+        return text
+
+    def render_label(self, node, base_style, style):
+        text = super().render_label(node, base_style, style)
+        return self._paint_size_bar(text, node)
 
     def on_mount(self) -> None:
         self.root.expand()

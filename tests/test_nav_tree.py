@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock
 
+from rich.style import Style
+
 from awstui.widgets.nav_tree import AWSNavTree, _size_bar_cells
 
 
@@ -75,3 +77,49 @@ def test_node_depth_counts_ancestors():
     assert tree._node_depth(root) == 0
     assert tree._node_depth(a) == 1
     assert tree._node_depth(b) == 2
+
+
+def _bg_span_len(text):
+    """Total cells covered by spans that set a background colour."""
+    return sum(
+        (span.end - span.start)
+        for span in text.spans
+        if isinstance(span.style, Style) and span.style.bgcolor is not None
+    )
+
+
+def test_render_label_paints_bar_for_sized_node(monkeypatch):
+    tree = _tree()
+    parent = tree.root.add("bucket")
+    child = parent.add("logs/")
+    tree.size_values = {id(parent): 1000, id(child): 500}  # 50%
+    # Fixed available width so the test is mount-independent.
+    monkeypatch.setattr(tree, "_available_bar_width", lambda node: 20)
+
+    text = tree.render_label(child, Style(), Style())
+
+    # 50% of 20 = 10 cells shaded; label padded to >= 20 cells.
+    assert _bg_span_len(text) == 10
+    assert text.cell_len >= 20
+
+
+def test_render_label_no_bar_when_unsized(monkeypatch):
+    tree = _tree()
+    parent = tree.root.add("bucket")
+    child = parent.add("logs/")
+    # Nothing in size_values -> fraction None.
+    monkeypatch.setattr(tree, "_available_bar_width", lambda node: 20)
+
+    text = tree.render_label(child, Style(), Style())
+    assert _bg_span_len(text) == 0
+
+
+def test_render_label_no_bar_when_width_zero(monkeypatch):
+    tree = _tree()
+    parent = tree.root.add("bucket")
+    child = parent.add("logs/")
+    tree.size_values = {id(parent): 1000, id(child): 500}
+    monkeypatch.setattr(tree, "_available_bar_width", lambda node: 0)
+
+    text = tree.render_label(child, Style(), Style())
+    assert _bg_span_len(text) == 0
