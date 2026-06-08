@@ -333,6 +333,7 @@ def test_size_on_serves_cache_hit_without_worker():
     assert node.label == "logs/ (2.0 KB, 5 objects)"
     assert app._size_base_labels[id(node)] == "logs/"
     assert id(node) not in app._size_workers
+    assert app._size_values[id(node)] == 2048
 
 
 def test_size_on_cache_miss_spawns_worker(monkeypatch):

@@ -579,8 +579,8 @@ class AWSBrowserApp(App):
         worker = self._size_workers.pop(id(node), None)
         if worker is not None:
             worker.cancel()
-        self._size_values.pop(id(node), None)
         base = self._size_base_labels.pop(id(node), None)
+        self._size_values.pop(id(node), None)
         if base is not None:
             node.set_label(base)
 
