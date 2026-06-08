@@ -15,6 +15,18 @@ _FILTER_BADGE_COLOR = "bright_yellow"
 _FILTER_ICON = "🔍"
 
 
+def _size_bar_cells(fraction: float, width: int) -> int:
+    """Number of cells to shade for a bar of `fraction` over `width` cells.
+
+    Clamps `fraction` to [0, 1] and the result to [0, width]; returns 0 for a
+    non-positive width.
+    """
+    if width <= 0:
+        return 0
+    fraction = max(0.0, min(1.0, fraction))
+    return max(0, min(width, round(fraction * width)))
+
+
 class NodeSelected(Message):
     """Posted when a tree node is selected."""
 
@@ -52,6 +64,10 @@ class AWSNavTree(Tree[TreeNode]):
         # Original (unfiltered) label for each currently-filtered parent, so
         # we can restore it when the filter is cleared.
         self._original_labels: dict[int, str] = {}
+        # id(textual TreeNode) -> byte total, shared by reference from the app
+        # (AWSBrowserApp._size_values). Drives the sibling-relative size bar in
+        # render_label. Empty until the app wires it up in on_mount.
+        self.size_values: dict[int, int] = {}
 
     @property
     def session(self) -> boto3.Session:
@@ -60,6 +76,38 @@ class AWSNavTree(Tree[TreeNode]):
     @session.setter
     def session(self, value: boto3.Session) -> None:
         self._session = value
+
+    def _node_depth(self, node) -> int:
+        """Number of ancestors between `node` and the root (root -> 0)."""
+        depth = 0
+        parent = node.parent
+        while parent is not None:
+            depth += 1
+            parent = parent.parent
+        return depth
+
+    def _available_bar_width(self, node) -> int:
+        """Cells available for the label region of `node`'s row.
+
+        Equals the tree's content width minus this node's indentation
+        (`depth * guide_depth`). 0 (no bar) when unmounted or too narrow.
+        """
+        return max(0, self.size.width - self._node_depth(node) * self.guide_depth)
+
+    def _size_fraction(self, node) -> float | None:
+        """`node`'s byte total as a fraction of its parent's, or None.
+
+        None when the node or its parent has no recorded size, the node has no
+        parent, or the parent total is 0.
+        """
+        own = self.size_values.get(id(node))
+        parent = node.parent
+        if own is None or parent is None:
+            return None
+        parent_total = self.size_values.get(id(parent))
+        if not parent_total:  # None or 0
+            return None
+        return own / parent_total
 
     def on_mount(self) -> None:
         self.root.expand()
