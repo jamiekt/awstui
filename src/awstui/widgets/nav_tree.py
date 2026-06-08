@@ -19,7 +19,7 @@ def _size_bar_cells(fraction: float, width: int) -> int:
     """Number of cells to shade for a bar of `fraction` over `width` cells.
 
     Clamps `fraction` to [0, 1] and the result to [0, width]; returns 0 for a
-    non-positive width.
+    non-positive width. e.g. `_size_bar_cells(0.69, 16)` -> `11`.
     """
     if width <= 0:
         return 0

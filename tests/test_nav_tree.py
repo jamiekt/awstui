@@ -12,6 +12,7 @@ def test_size_bar_cells_rounding_and_clamp():
     assert _size_bar_cells(1.0, 20) == 20
     assert _size_bar_cells(0.5, 20) == 10
     assert _size_bar_cells(0.69, 16) == 11  # round(11.04)
+    assert _size_bar_cells(0.125, 20) == 2  # round(2.5) -> 2 (banker's rounding)
     # Clamp out-of-range inputs.
     assert _size_bar_cells(-0.5, 20) == 0
     assert _size_bar_cells(1.5, 20) == 20
